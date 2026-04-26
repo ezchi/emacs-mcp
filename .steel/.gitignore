@@ -1,0 +1,4 @@
+# Ephemeral working state — do not commit
+*
+!.gitignore
+!constitution.md

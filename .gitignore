@@ -15,3 +15,7 @@ dist/
 
 # Undo-tree save-files
 *.~undo-tree
+
+# Steel-Kit ephemeral commands
+.claude/commands/steel-*
+.agents/skills/steel-*
