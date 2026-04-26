@@ -15,7 +15,7 @@
 - **Build/package tools**: Eask, Cask, or Eldev for CI/packaging (to be determined)
 - **Testing**: ERT (Emacs Regression Testing) for unit tests, Buttercup for BDD-style tests if warranted
 - **CI**: GitHub Actions
-- **Protocol**: Model Context Protocol (MCP) over JSON-RPC/stdio
+- **Protocol**: Model Context Protocol (MCP) `2025-03-26` over Streamable HTTP (JSON-RPC 2.0)
 
 ## Coding Standards
 
