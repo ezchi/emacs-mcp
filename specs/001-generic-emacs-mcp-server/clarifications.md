@@ -43,3 +43,31 @@
 **Ambiguity**: FR-1.6 says the port is "integer or nil" but doesn't specify valid range. Users could set port 80 (requires root), 0 (auto-select), or 99999 (invalid).
 
 **Resolution**: The defcustom SHALL validate that the port is either nil (auto-select) or an integer in the range 1-65535. The `:type` declaration should use `(choice (const :tag "Auto-select" nil) (integer :tag "Fixed port"))` with a `:safe` predicate that checks the range.
+
+## C-8: README with usage instructions and client configuration examples [SPEC UPDATE]
+
+**User feedback**: "please create README file with details instruction about how to use this MCP with examples for claude code, gemini cli and codex. It has needs to have detail information about how to add new tools to the MCP server"
+
+**Resolution**: Add a new non-functional requirement (NFR-8) requiring a `README.org` file (Org format, consistent with Emacs ecosystem conventions) that includes:
+
+1. **Installation** — How to install the package (MELPA, manual).
+2. **Quick Start** — Minimal setup: `(emacs-mcp-mode 1)` or `M-x emacs-mcp-start`.
+3. **Configuration** — All defcustoms: `emacs-mcp-server-port`, `emacs-mcp-project-directory`, `emacs-mcp-lockfile-directory`, `emacs-mcp-extra-lockfile-directories`, `emacs-mcp-session-timeout`, `emacs-mcp-deferred-timeout`, `emacs-mcp-confirm-function`, `emacs-mcp-enable-tool-*`.
+4. **Connecting LLM Agents** — Concrete configuration examples for:
+   - **Claude Code**: `.claude/settings.json` MCP server config pointing to `http://127.0.0.1:38840/mcp`
+   - **Gemini CLI**: `.gemini/settings.json` or equivalent MCP server config
+   - **Codex**: MCP server config for OpenAI Codex CLI
+   - **Generic MCP client**: curl-based example showing the full initialize → tools/list → tools/call flow
+5. **Built-in Tools** — Table of all built-in tools with name, description, and parameters.
+6. **Adding Custom Tools** — Detailed guide with examples:
+   - `emacs-mcp-deftool` macro usage (simple tool, tool with confirmation)
+   - `emacs-mcp-register-tool` programmatic API
+   - `emacs-mcp-unregister-tool` for runtime removal
+   - Parameter types and JSON Schema mapping
+   - Return value conventions (string, content list, error signaling, deferred)
+   - A complete worked example of a custom tool from definition to use
+7. **Lockfile Discovery** — How lockfiles work, where they are, how to add extra directories.
+8. **Security** — Origin validation, path authorization, confirmation policy, execute-elisp.
+9. **License** — AGPL-3.0-or-later.
+
+**Rationale**: The constitution says "User control" — users need clear documentation to configure and extend the package. A README is standard for MELPA packages and essential for adoption.

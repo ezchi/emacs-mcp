@@ -326,6 +326,17 @@ Long-running tools SHOULD NOT be added to the built-in set without careful consi
 
 **NFR-6: Package Ecosystem** — The package SHALL be distributable via MELPA and NonGNU ELPA. It SHALL include standard package headers: `;;; emacs-mcp.el --- MCP server for Emacs`, `;; Version:`, `;; Package-Requires: ((emacs "29.1"))`, `;; License: AGPL-3.0-or-later`, `;; URL:`. All source files SHALL include the AGPL-3.0 license header.
 
+**NFR-8: README Documentation** — The package SHALL include a `README.org` file with:
+1. Installation instructions (MELPA, manual).
+2. Quick start guide (`emacs-mcp-mode`, `M-x emacs-mcp-start`).
+3. Configuration reference for all defcustoms.
+4. Connecting LLM agents — concrete config examples for Claude Code (`.claude/settings.json`), Gemini CLI, Codex CLI, and a generic curl walkthrough showing the full initialize → tools/list → tools/call MCP flow.
+5. Built-in tools reference table (name, description, parameters).
+6. Adding custom tools guide with `emacs-mcp-deftool` examples (simple tool, tool with `:confirm`), `emacs-mcp-register-tool` programmatic API, `emacs-mcp-unregister-tool`, parameter type mapping, return value conventions (string, content list, error signaling, deferred pattern), and a complete worked example.
+7. Lockfile discovery explanation.
+8. Security model (Origin validation, path authorization, confirmation policy, execute-elisp).
+9. License (AGPL-3.0-or-later).
+
 **NFR-7: No Global State Pollution** — Per the constitution. The package SHALL not modify any global keymaps, hooks, or variables outside the `emacs-mcp-` namespace at load time (`require`). When `emacs-mcp-mode` is enabled or `emacs-mcp-start` is called, the package MAY add to `kill-emacs-hook` (for cleanup) — this is the only permitted global hook modification, and it SHALL be removed when the mode is disabled or the server stops.
 
 ## Acceptance Criteria
@@ -380,6 +391,8 @@ curl -s -D - -X POST http://127.0.0.1:PORT/mcp \
 
 **AC-14**: A batch array containing two `tools/call` requests returns a JSON array with two corresponding responses.
 
+**AC-15**: `README.org` exists at the project root, contains sections for installation, quick start, configuration, connecting LLM agents (with Claude Code, Gemini CLI, Codex examples), built-in tools, adding custom tools (with `emacs-mcp-deftool` and `emacs-mcp-register-tool` examples), and security.
+
 ## Out of Scope
 
 1. **Terminal/CLI management** — Starting, stopping, or managing LLM CLI processes is a client-package concern.
@@ -410,3 +423,4 @@ curl -s -D - -X POST http://127.0.0.1:PORT/mcp \
 - [Clarification iter2] FR-1.7: Added stale lockfile cleanup on startup (check PID, remove if dead).
 - [Clarification iter2] C-6: Upgraded from [NO SPEC CHANGE] to [SPEC UPDATE].
 - [Clarification iter3] FR-1.6: Added explicit runtime validation in `emacs-mcp-start` (separate from `:safe` which is file-local safety only). Invalid port signals `user-error` before bind attempt.
+- [Clarification delta1] NFR-8: Added README.org requirement with installation, configuration, LLM agent examples (Claude Code, Gemini CLI, Codex), custom tool guide, and security docs. Added AC-15.
