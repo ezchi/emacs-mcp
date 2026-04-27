@@ -67,7 +67,7 @@ The only differences are client-specific coupling: symbol prefixes (`claude-code
 
 **FR-1.5**: The server SHALL bind to `127.0.0.1` only. No remote connections.
 
-**FR-1.6**: The server port SHALL be configurable via `emacs-mcp-server-port` (defcustom, default `38840`). Type: `(choice (const :tag "Auto-select" nil) (integer :tag "Fixed port"))`. Valid range: nil or 1-65535. If nil, auto-select an available port using port 0. If a fixed port is configured but cannot be bound (port in use, permission denied, etc.), `emacs-mcp-start` SHALL signal a `user-error`: `"emacs-mcp: cannot bind to port %d: %s"` with the port number and the system error message.
+**FR-1.6**: The server port SHALL be configurable via `emacs-mcp-server-port` (defcustom, default `38840`). Type: `(choice (const :tag "Auto-select" nil) (integer :tag "Fixed port"))`. Valid range: nil or 1-65535. `:safe` predicate: `(lambda (v) (or (null v) (and (integerp v) (<= 1 v 65535))))`. If nil, auto-select an available port using port 0. If a fixed port is configured but cannot be bound (port in use, permission denied, etc.), `emacs-mcp-start` SHALL signal a `user-error`: `"emacs-mcp: cannot bind to port %d: %s"` with the port number and the system error message.
 
 **FR-1.7**: The server SHALL create a lockfile at `~/.emacs-mcp/{PORT}.lock` containing JSON metadata:
 ```json
@@ -79,7 +79,7 @@ The only differences are client-specific coupling: symbol prefixes (`claude-code
   "transport": "streamable-http"
 }
 ```
-The lockfile directory is configurable via `emacs-mcp-lockfile-directory` (defcustom, default `"~/.emacs-mcp"`).
+The lockfile directory is configurable via `emacs-mcp-lockfile-directory` (defcustom, default `"~/.emacs-mcp"`). On startup, before creating a new lockfile, `emacs-mcp-start` SHALL check for existing lockfiles in all lockfile directories. For each existing lockfile, read the PID and verify whether the process is still alive (via `process-attributes`). If the process is dead, remove the stale lockfile.
 
 **FR-1.8**: The HTTP server SHALL be implemented using Emacs's built-in `make-network-process` with manual HTTP request/response handling. No external HTTP server dependency.
 
@@ -406,3 +406,6 @@ curl -s -D - -X POST http://127.0.0.1:PORT/mcp \
 - [Clarification iter1] FR-4.2: `emacs-mcp-project-directory` formally declared as defcustom with `:type` and default nil.
 - [Clarification iter1] FR-6.1/FR-6.2/FR-6.3: Explicitly marked as interactive commands with `;;;###autoload`.
 - [Clarification iter1] FR-1.2 GET: Resolved ambiguity — server supports GET SSE streams (not 405). Requires valid session ID.
+- [Clarification iter2] FR-1.6: Added `:safe` predicate for port validation. Clarified nil is the only auto-select value (not 0).
+- [Clarification iter2] FR-1.7: Added stale lockfile cleanup on startup (check PID, remove if dead).
+- [Clarification iter2] C-6: Upgraded from [NO SPEC CHANGE] to [SPEC UPDATE].
