@@ -326,6 +326,8 @@ Long-running tools SHOULD NOT be added to the built-in set without careful consi
 
 **NFR-6: Package Ecosystem** — The package SHALL be distributable via MELPA and NonGNU ELPA. It SHALL include standard package headers: `;;; emacs-mcp.el --- MCP server for Emacs`, `;; Version:`, `;; Package-Requires: ((emacs "29.1"))`, `;; License: AGPL-3.0-or-later`, `;; URL:`. All source files SHALL include the AGPL-3.0 license header.
 
+**NFR-7: No Global State Pollution** — Per the constitution. The package SHALL not modify any global keymaps, hooks, or variables outside the `emacs-mcp-` namespace at load time (`require`). When `emacs-mcp-mode` is enabled or `emacs-mcp-start` is called, the package MAY add to `kill-emacs-hook` (for cleanup) — this is the only permitted global hook modification, and it SHALL be removed when the mode is disabled or the server stops.
+
 **NFR-8: README Documentation** — The package SHALL include a `README.org` file with:
 1. Installation instructions (MELPA, manual).
 2. Quick start guide (`emacs-mcp-mode`, `M-x emacs-mcp-start`).
@@ -336,8 +338,6 @@ Long-running tools SHOULD NOT be added to the built-in set without careful consi
 7. Lockfile discovery explanation.
 8. Security model (Origin validation, path authorization, confirmation policy, execute-elisp).
 9. License (AGPL-3.0-or-later).
-
-**NFR-7: No Global State Pollution** — Per the constitution. The package SHALL not modify any global keymaps, hooks, or variables outside the `emacs-mcp-` namespace at load time (`require`). When `emacs-mcp-mode` is enabled or `emacs-mcp-start` is called, the package MAY add to `kill-emacs-hook` (for cleanup) — this is the only permitted global hook modification, and it SHALL be removed when the mode is disabled or the server stops.
 
 ## Acceptance Criteria
 
