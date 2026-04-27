@@ -51,7 +51,7 @@ The only differences are client-specific coupling: symbol prefixes (`claude-code
   - If the input contains one or more requests, the server SHALL return either `Content-Type: application/json` (single JSON response or JSON array of responses for batch) or `Content-Type: text/event-stream` (SSE stream). The server chooses SSE when any response may be deferred or when server-initiated messages are needed.
   - For batch requests: if NO request in the batch triggers a deferred response, the server SHALL return `Content-Type: application/json` with a JSON array of responses (one per request; notifications produce no response). If ANY request in the batch triggers a deferred response, the server SHALL return `Content-Type: text/event-stream` (SSE) and deliver each response as a separate SSE `data:` event — immediate responses are sent right away, deferred responses are sent when they complete. The stream closes after all responses have been delivered or timed out.
 - The server SHALL NOT reject requests based on the `Accept` header. Per MCP, clients MUST send appropriate `Accept` headers, but the server is lenient: if the header is missing or unexpected, the server still responds with the appropriate content type for the operation.
-- **GET**: Opens an SSE stream for server-to-client messages (notifications, requests). The server SHALL return `Content-Type: text/event-stream` or HTTP 405 if the server does not support a standalone SSE stream.
+- **GET**: Opens an SSE stream for server-to-client messages (notifications, requests). The server SHALL return `Content-Type: text/event-stream`. The GET request MUST include a valid `Mcp-Session-Id` header; requests with missing session ID receive HTTP 400, unknown/expired session ID receives HTTP 404. The server uses this stream for server-initiated messages and for redelivering deferred responses after client reconnection (FR-5.5).
 - **DELETE**: Terminates the session identified by the `Mcp-Session-Id` header. Returns HTTP 200 on success, HTTP 404 if the session does not exist.
 
 **FR-1.3**: The server SHALL support multiple concurrent client sessions. Each session is identified by a unique, cryptographically random session ID (UUID v4).
@@ -67,7 +67,7 @@ The only differences are client-specific coupling: symbol prefixes (`claude-code
 
 **FR-1.5**: The server SHALL bind to `127.0.0.1` only. No remote connections.
 
-**FR-1.6**: The server port SHALL be configurable via `emacs-mcp-server-port` (defcustom, integer or nil). If nil, auto-select an available port using port 0.
+**FR-1.6**: The server port SHALL be configurable via `emacs-mcp-server-port` (defcustom, default `38840`). Type: `(choice (const :tag "Auto-select" nil) (integer :tag "Fixed port"))`. Valid range: nil or 1-65535. If nil, auto-select an available port using port 0. If a fixed port is configured but cannot be bound (port in use, permission denied, etc.), `emacs-mcp-start` SHALL signal a `user-error`: `"emacs-mcp: cannot bind to port %d: %s"` with the port number and the system error message.
 
 **FR-1.7**: The server SHALL create a lockfile at `~/.emacs-mcp/{PORT}.lock` containing JSON metadata:
 ```json
@@ -117,14 +117,14 @@ The macro SHALL:
 - Accept an optional `:confirm t` keyword argument after the handler body to mark the tool as requiring confirmation (FR-7).
 
 **FR-2.2**: Parameter type mapping to JSON Schema:
-| Elisp keyword | JSON Schema type | Notes |
-|---|---|---|
-| `string` | `"string"` | |
-| `integer` | `"integer"` | |
-| `number` | `"number"` | Includes floats |
-| `boolean` | `"boolean"` | |
-| `array` | `"array"` | Items type via `:items` keyword |
-| `object` | `"object"` | |
+| Elisp keyword | JSON Schema type | Notes                           |
+|---------------|------------------|---------------------------------|
+| `string`      | `"string"`       |                                 |
+| `integer`     | `"integer"`      |                                 |
+| `number`      | `"number"`       | Includes floats                 |
+| `boolean`     | `"boolean"`      |                                 |
+| `array`       | `"array"`        | Items type via `:items` keyword |
+| `object`      | `"object"`       |                                 |
 
 The generated `inputSchema` SHALL be a valid JSON Schema object with `type: "object"`, `properties`, and `required` fields derived from the parameter list.
 
@@ -211,7 +211,7 @@ The package SHALL ship with the following built-in tools. Each tool is enabled b
 **FR-4.2**: Each session SHALL track:
 - `session-id` (string): The UUID.
 - `client-info` (alist): The `clientInfo` object from the `initialize` request (name, version).
-- `project-dir` (string): The server's project directory, set at server start time. Determined by: (1) the value of `emacs-mcp-project-directory` defcustom if non-nil, (2) otherwise `(project-root (project-current))` if a project is detected, (3) otherwise `default-directory`. All sessions share the same project directory. (Note: MCP `2025-03-26` defines `roots/list` as the protocol mechanism for clients to communicate workspace roots. Supporting `roots/list` to allow per-session project directories is deferred to a future version.)
+- `project-dir` (string): The server's project directory, set at server start time. Determined by: (1) the value of `emacs-mcp-project-directory` defcustom (string or nil, default nil) if non-nil, (2) otherwise `(project-root (project-current))` if a project is detected, (3) otherwise `default-directory`. All sessions share the same project directory. `emacs-mcp-project-directory` is a formal defcustom with `:type '(choice (const :tag "Auto-detect" nil) (directory :tag "Fixed directory"))`. (Note: MCP `2025-03-26` defines `roots/list` as the protocol mechanism for clients to communicate workspace roots. Supporting `roots/list` to allow per-session project directories is deferred to a future version.)
 - `state` (symbol): One of `initializing`, `ready`, `closed`.
 - `connected-at` (timestamp): When the session was created.
 - `last-activity` (timestamp): Updated on every request.
@@ -258,11 +258,11 @@ These are internal (`--` prefix) but available to tool handlers. A deferred tool
 
 ### FR-6: Server Lifecycle
 
-**FR-6.1**: `emacs-mcp-start` SHALL start the MCP server. If already running, it SHALL return the existing server's port without starting a second server.
+**FR-6.1**: `emacs-mcp-start` SHALL be an interactive command (`;;;###autoload`) that starts the MCP server. If already running, it SHALL return the existing server's port without starting a second server.
 
-**FR-6.2**: `emacs-mcp-stop` SHALL gracefully shut down the server: close all active SSE streams and network connections, cancel all timers, remove all lockfiles, and clean up all session state. After shutdown, the server process no longer exists — clients attempting to connect receive a TCP connection refused error.
+**FR-6.2**: `emacs-mcp-stop` SHALL be an interactive command (`;;;###autoload`) that gracefully shuts down the server: close all active SSE streams and network connections, cancel all timers, remove all lockfiles, and clean up all session state. After shutdown, the server process no longer exists — clients attempting to connect receive a TCP connection refused error.
 
-**FR-6.3**: `emacs-mcp-restart` SHALL call `emacs-mcp-stop` then `emacs-mcp-start`.
+**FR-6.3**: `emacs-mcp-restart` SHALL be an interactive command (`;;;###autoload`) that calls `emacs-mcp-stop` then `emacs-mcp-start`.
 
 **FR-6.4**: `emacs-mcp-mode` SHALL be a global minor mode. Enabling it calls `emacs-mcp-start`; disabling it calls `emacs-mcp-stop`. The mode SHALL add a `kill-emacs-hook` to ensure cleanup. The hook SHALL be removed when the mode is disabled.
 
@@ -399,3 +399,10 @@ curl -s -D - -X POST http://127.0.0.1:PORT/mcp \
 8. **SSE resumability** — The `Last-Event-ID` / event ID mechanism from the MCP spec is optional and deferred to a future version.
 
 9. **JSON-RPC batch sending** — The server MUST support receiving batch arrays (per MCP spec). However, the server does NOT send batched responses proactively or optimize batch processing. Each message in a received batch is processed sequentially.
+
+## Changelog
+
+- [Clarification iter1] FR-1.6: Default port changed from nil (auto-select) to `38840` (fixed). Added port validation range (1-65535). Added `user-error` on bind failure.
+- [Clarification iter1] FR-4.2: `emacs-mcp-project-directory` formally declared as defcustom with `:type` and default nil.
+- [Clarification iter1] FR-6.1/FR-6.2/FR-6.3: Explicitly marked as interactive commands with `;;;###autoload`.
+- [Clarification iter1] FR-1.2 GET: Resolved ambiguity — server supports GET SSE streams (not 405). Requires valid session ID.
