@@ -32,6 +32,8 @@
 
 ;;; Code:
 
+(require 'cl-lib)
+
 ;;;; Customization group
 
 (defgroup emacs-mcp nil
@@ -59,6 +61,7 @@ When nil, the project root is detected automatically using
 as-is."
   :type '(choice (const :tag "Auto-detect" nil)
                  (directory :tag "Fixed directory"))
+  :safe (lambda (v) (or (null v) (stringp v)))
   :group 'emacs-mcp)
 
 (defcustom emacs-mcp-lockfile-directory "~/.emacs-mcp"
@@ -66,6 +69,7 @@ as-is."
 Each running server writes a lockfile so that external processes
 can discover the server port."
   :type 'directory
+  :safe #'stringp
   :group 'emacs-mcp)
 
 (defcustom emacs-mcp-extra-lockfile-directories nil
@@ -73,6 +77,8 @@ can discover the server port."
 This is useful when multiple tools scan different paths for MCP
 server discovery."
   :type '(repeat directory)
+  :safe (lambda (v)
+          (and (listp v) (cl-every #'stringp v)))
   :group 'emacs-mcp)
 
 (defcustom emacs-mcp-session-timeout 1800
@@ -80,6 +86,7 @@ server discovery."
 Sessions that receive no requests within this period are
 automatically terminated."
   :type 'integer
+  :safe #'integerp
   :group 'emacs-mcp)
 
 (defcustom emacs-mcp-deferred-timeout 300
@@ -87,6 +94,7 @@ automatically terminated."
 If a deferred tool call is not resolved within this period, it
 is considered failed."
   :type 'integer
+  :safe #'integerp
   :group 'emacs-mcp)
 
 ;;;; Hook variables
