@@ -67,7 +67,7 @@ The only differences are client-specific coupling: symbol prefixes (`claude-code
 
 **FR-1.5**: The server SHALL bind to `127.0.0.1` only. No remote connections.
 
-**FR-1.6**: The server port SHALL be configurable via `emacs-mcp-server-port` (defcustom, default `38840`). Type: `(choice (const :tag "Auto-select" nil) (integer :tag "Fixed port"))`. Valid range: nil or 1-65535. `:safe` predicate: `(lambda (v) (or (null v) (and (integerp v) (<= 1 v 65535))))`. If nil, auto-select an available port using port 0. If a fixed port is configured but cannot be bound (port in use, permission denied, etc.), `emacs-mcp-start` SHALL signal a `user-error`: `"emacs-mcp: cannot bind to port %d: %s"` with the port number and the system error message.
+**FR-1.6**: The server port SHALL be configurable via `emacs-mcp-server-port` (defcustom, default `38840`). Type: `(choice (const :tag "Auto-select" nil) (integer :tag "Fixed port"))`. `:safe` predicate: `(lambda (v) (or (null v) (and (integerp v) (<= 1 v 65535))))` (controls file-local variable safety). **Runtime validation**: `emacs-mcp-start` SHALL validate the port value before attempting to bind. If the value is non-nil and not an integer in range 1-65535, signal `user-error`: `"emacs-mcp: invalid port %S (must be nil or 1-65535)"`. If nil, auto-select an available port using port 0. If a valid fixed port is configured but cannot be bound (port in use, permission denied, etc.), `emacs-mcp-start` SHALL signal `user-error`: `"emacs-mcp: cannot bind to port %d: %s"` with the port number and the system error message.
 
 **FR-1.7**: The server SHALL create a lockfile at `~/.emacs-mcp/{PORT}.lock` containing JSON metadata:
 ```json
@@ -409,3 +409,4 @@ curl -s -D - -X POST http://127.0.0.1:PORT/mcp \
 - [Clarification iter2] FR-1.6: Added `:safe` predicate for port validation. Clarified nil is the only auto-select value (not 0).
 - [Clarification iter2] FR-1.7: Added stale lockfile cleanup on startup (check PID, remove if dead).
 - [Clarification iter2] C-6: Upgraded from [NO SPEC CHANGE] to [SPEC UPDATE].
+- [Clarification iter3] FR-1.6: Added explicit runtime validation in `emacs-mcp-start` (separate from `:safe` which is file-local safety only). Invalid port signals `user-error` before bind attempt.
