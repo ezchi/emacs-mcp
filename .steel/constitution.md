@@ -37,6 +37,20 @@
 - **Byte-compile check**: Code must byte-compile without warnings before merging.
 - **Checkdoc**: All public symbols must pass `checkdoc` before merging.
 
+## Emacs Lisp Pitfalls
+
+These are non-obvious Emacs API behaviors that caused bugs during implementation. Treat them as mandatory coding rules.
+
+1. **JSON array type**: Always use `:array-type 'array` (not `'list`) with `json-parse-string` when the parsed data may be serialized back to JSON. Lists are indistinguishable from alists, breaking round-trip serialization of nested arrays (e.g., MCP `content` arrays). The `'array` option produces vectors, which `json-serialize` correctly encodes as JSON arrays.
+
+2. **Reading `/dev/urandom`**: `insert-file-contents-literally` with start/end byte offsets fails on character devices (`file-error`). Use `(call-process "head" "/dev/urandom" t nil "-c" "N")` with `(let ((coding-system-for-read 'no-conversion)) ...)` to read raw bytes. Always validate the byte count after reading.
+
+3. **No `return` statement**: Emacs Lisp has no `return` keyword. `(return expr)` compiles without error but calls an undefined function at runtime. Use `cond`/nested `if` for early-exit control flow. Do not use `cl-return-from` with `defun` names — it requires an explicit `cl-block`. Prefer restructuring with `cond` over `cl-block`/`cl-return-from`.
+
+4. **`let` vs `let*` for closures**: With `lexical-binding: t`, `let` evaluates all init-forms in the *outer* lexical scope. A lambda assigned to one binding cannot close over a variable from another binding in the same `let` form — the variable resolves in the outer scope (typically nil or unbound). Use `let*` whenever a lambda must capture a variable defined in an earlier binding.
+
+5. **Regex string anchors**: `^` and `$` match *line* boundaries in Emacs regex, not string boundaries. For string-start/end matching, use `\`` and `\'`. This is security-critical for input validation (e.g., Origin headers): an attacker can embed a newline to bypass `^...$` patterns. Additionally, pre-filter control characters (`[\x00-\x1f\x7f]`) before regex matching on untrusted input.
+
 ## Constraints
 
 - **No network calls at load time** — The package must load instantly without blocking Emacs. All network/process activity happens on explicit user action or deferred initialization.
