@@ -24,18 +24,17 @@
   "Start an HTTP server on PORT, dispatching parsed requests to HANDLER.
 HANDLER is called with (process method path headers body).
 Returns the server process.  Binds to 127.0.0.1 only."
-  (let ((server (make-network-process
-                 :name "emacs-mcp-http"
-                 :server t
-                 :host "127.0.0.1"
-                 :service (or port 0)
-                 :family 'ipv4
-                 :coding 'no-conversion
-                 :filter #'emacs-mcp--http-filter
-                 :sentinel #'emacs-mcp--http-sentinel
-                 :noquery t
-                 :plist (list :handler handler))))
-    server))
+  (make-network-process
+   :name "emacs-mcp-http"
+   :server t
+   :host "127.0.0.1"
+   :service (or port 0)
+   :family 'ipv4
+   :coding 'no-conversion
+   :filter #'emacs-mcp--http-filter
+   :sentinel #'emacs-mcp--http-sentinel
+   :noquery t
+   :plist (list :handler handler)))
 
 (defun emacs-mcp--http-stop (server)
   "Stop the HTTP SERVER and close all client connections."
@@ -54,7 +53,12 @@ Returns the server process.  Binds to 127.0.0.1 only."
    ;; New client connection from server accept
    ((string-prefix-p "open" event)
     (push process emacs-mcp--http-clients)
-    (process-put process :buffer ""))
+    (process-put process :buffer "")
+    ;; Propagate handler from server to client process
+    (let ((server (process-contact process :server)))
+      (when (processp server)
+        (process-put process :handler
+                     (process-get server :handler)))))
    ;; Client disconnected
    ((or (string-prefix-p "connection broken" event)
         (string-prefix-p "deleted" event)
@@ -72,56 +76,53 @@ Returns the server process.  Binds to 127.0.0.1 only."
   "Accumulate DATA from PROCESS and dispatch complete HTTP requests."
   (let ((buf (concat (or (process-get process :buffer) "") data)))
     (process-put process :buffer buf)
-    ;; Try to parse a complete request
-    (let ((request (emacs-mcp--http-try-parse-request buf)))
+    (let ((request (emacs-mcp--http-parse-request buf)))
       (when request
-        ;; Clear buffer
         (process-put process :buffer "")
         (let* ((method (nth 0 request))
                (path (nth 1 request))
                (headers (nth 3 request))
                (body (nth 4 request)))
-          ;; Origin validation
+          ;; Origin validation first
           (let ((origin (cdr (assoc "origin" headers))))
-            (if (and origin
-                     (not (emacs-mcp--http-valid-origin-p origin)))
-                (emacs-mcp--http-send-response
-                 process 403 "Forbidden"
-                 '(("Content-Type" . "text/plain"))
-                 "Forbidden")
-              ;; Method routing
-              (let ((handler (process-get
-                              (process-get process :server)
-                              :handler)))
-                (unless handler
-                  ;; Fallback: look for handler in server process
-                  (setq handler (process-get process :handler)))
-                (if (member method '("POST" "GET" "DELETE"))
-                    (if handler
-                        (funcall handler process method path
-                                 headers body)
-                      (emacs-mcp--http-send-response
-                       process 500 "Internal Server Error"
-                       '(("Content-Type" . "text/plain"))
-                       "No handler configured"))
-                  (if (equal path "/mcp")
-                      (emacs-mcp--http-send-response
-                       process 405 "Method Not Allowed"
-                       '(("Content-Type" . "text/plain")
-                         ("Allow" . "POST, GET, DELETE"))
-                       "Method Not Allowed")
-                    (emacs-mcp--http-send-response
-                     process 404 "Not Found"
-                     '(("Content-Type" . "text/plain"))
-                     "Not Found")))))))))))
+            (cond
+             ;; Invalid origin -> 403
+             ((and origin
+                   (not (emacs-mcp--http-validate-origin origin)))
+              (emacs-mcp--http-send-response
+               process 403 "Forbidden"
+               '(("Content-Type" . "text/plain"))
+               "Forbidden"))
+             ;; Path not /mcp -> 404
+             ((not (equal path "/mcp"))
+              (emacs-mcp--http-send-response
+               process 404 "Not Found"
+               '(("Content-Type" . "text/plain"))
+               "Not Found"))
+             ;; Unsupported method -> 405
+             ((not (member method '("POST" "GET" "DELETE")))
+              (emacs-mcp--http-send-response
+               process 405 "Method Not Allowed"
+               '(("Content-Type" . "text/plain")
+                 ("Allow" . "POST, GET, DELETE"))
+               "Method Not Allowed"))
+             ;; Dispatch to handler
+             (t
+              (let ((handler (process-get process :handler)))
+                (if handler
+                    (funcall handler process method path
+                             headers body)
+                  (emacs-mcp--http-send-response
+                   process 500 "Internal Server Error"
+                   '(("Content-Type" . "text/plain"))
+                   "No handler")))))))))))
 
 ;;;; HTTP parsing
 
-(defun emacs-mcp--http-try-parse-request (data)
+(defun emacs-mcp--http-parse-request (data)
   "Try to parse DATA as a complete HTTP request.
 Returns (method path http-version headers body) if complete, nil
 if more data is needed."
-  ;; Find end of headers
   (let ((header-end (string-search "\r\n\r\n" data)))
     (when header-end
       (let* ((header-str (substring data 0 header-end))
@@ -129,9 +130,9 @@ if more data is needed."
              (lines (split-string header-str "\r\n"))
              (request-line (car lines))
              (header-lines (cdr lines)))
-        ;; Parse request line
+        ;; Parse request line — accept any HTTP method
         (when (string-match
-               "^\\(GET\\|POST\\|PUT\\|DELETE\\|OPTIONS\\|HEAD\\|PATCH\\) \\(\\S-+\\) \\(HTTP/[0-9.]+\\)"
+               "^\\([A-Z]+\\) \\(\\S-+\\) \\(HTTP/[0-9.]+\\)"
                request-line)
           (let* ((method (match-string 1 request-line))
                  (path (match-string 2 request-line))
@@ -139,10 +140,10 @@ if more data is needed."
                  (headers (emacs-mcp--http-parse-headers
                            header-lines))
                  (content-length
-                  (let ((cl (cdr (assoc "content-length" headers))))
+                  (let ((cl (cdr (assoc "content-length"
+                                        headers))))
                     (if cl (string-to-number cl) 0)))
                  (body-available (- (length data) body-start)))
-            ;; Check if we have the full body
             (when (>= body-available content-length)
               (let ((body (if (> content-length 0)
                               (substring data body-start
@@ -163,12 +164,15 @@ if more data is needed."
 
 ;;;; Response writing
 
-(defun emacs-mcp--http-send-response (process status reason headers body)
+(defun emacs-mcp--http-send-response (process status reason
+                                              headers body)
   "Send an HTTP response to PROCESS.
 STATUS is the numeric status code.  REASON is the reason phrase.
 HEADERS is an alist.  BODY is a string (or nil)."
   (when (process-live-p process)
-    (let* ((body-bytes (if body (encode-coding-string body 'utf-8) ""))
+    (let* ((body-bytes (if body
+                           (encode-coding-string body 'utf-8)
+                         ""))
            (all-headers
             (append headers
                     (unless (assoc "Content-Length" headers)
@@ -187,14 +191,16 @@ HEADERS is an alist.  BODY is a string (or nil)."
 
 ;;;; SSE support
 
-(defun emacs-mcp--http-send-sse-headers (process &optional extra-headers)
+(defun emacs-mcp--http-send-sse-headers (process
+                                         &optional extra-headers)
   "Send SSE response headers to PROCESS.
 EXTRA-HEADERS is an optional alist of additional headers."
   (when (process-live-p process)
-    (let ((headers (append '(("Content-Type" . "text/event-stream")
-                             ("Cache-Control" . "no-cache")
-                             ("Connection" . "keep-alive"))
-                           extra-headers)))
+    (let ((headers
+           (append '(("Content-Type" . "text/event-stream")
+                     ("Cache-Control" . "no-cache")
+                     ("Connection" . "keep-alive"))
+                   extra-headers)))
       (process-send-string
        process
        (concat "HTTP/1.1 200 OK\r\n"
@@ -217,7 +223,7 @@ EXTRA-HEADERS is an optional alist of additional headers."
 
 ;;;; Origin validation
 
-(defun emacs-mcp--http-valid-origin-p (origin)
+(defun emacs-mcp--http-validate-origin (origin)
   "Return non-nil if ORIGIN is a valid localhost origin.
 Allows http/https on 127.0.0.1, localhost, or [::1] with any port."
   (and (stringp origin)

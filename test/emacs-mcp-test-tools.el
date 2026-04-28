@@ -115,6 +115,17 @@
                                                        schema))))
                      (cdr pair))))))
 
+(ert-deftest emacs-mcp-test-tools-schema-array-items ()
+  "Array parameter with :items generates items sub-schema."
+  (let ((schema (emacs-mcp--tool-input-schema
+                 '((:name "tags" :type array :items string
+                    :required t)))))
+    (let* ((props (alist-get 'properties schema))
+           (tags (cdr (assoc "tags" props))))
+      (should (equal (alist-get 'type tags) "array"))
+      (should (equal (alist-get 'type (alist-get 'items tags))
+                     "string")))))
+
 ;;;; Argument validation tests
 
 (ert-deftest emacs-mcp-test-tools-validate-missing-required ()
@@ -136,6 +147,13 @@
   (emacs-mcp--validate-tool-args
    '((:name "x" :type string :required nil))
    '(("x" . :null))))
+
+(ert-deftest emacs-mcp-test-tools-validate-null-required ()
+  "Null values rejected for required arguments."
+  (should-error
+   (emacs-mcp--validate-tool-args
+    '((:name "x" :type string :required t))
+    '(("x" . :null)))))
 
 (ert-deftest emacs-mcp-test-tools-validate-correct ()
   "Valid arguments pass validation."
@@ -160,6 +178,16 @@
          (result (emacs-mcp--wrap-tool-result content)))
     (should (equal (alist-get 'isError result) :false))
     (should (eq (alist-get 'content result) content))))
+
+(ert-deftest emacs-mcp-test-tools-wrap-content-list ()
+  "List of content alists converted to vector."
+  (let* ((content '(((type . "text") (text . "ok"))))
+         (result (emacs-mcp--wrap-tool-result content)))
+    (should (equal (alist-get 'isError result) :false))
+    (should (vectorp (alist-get 'content result)))
+    (should (equal (alist-get 'text
+                              (aref (alist-get 'content result) 0))
+                   "ok"))))
 
 (ert-deftest emacs-mcp-test-tools-wrap-deferred ()
   "Deferred symbol passes through unwrapped."

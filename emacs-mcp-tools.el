@@ -98,7 +98,11 @@ Returns an alist suitable for JSON serialization."
              (type (plist-get p :type))
              (desc (plist-get p :description))
              (req (plist-get p :required))
+             (items (plist-get p :items))
              (prop `((type . ,(emacs-mcp--type-to-json-schema type)))))
+        (when (and (eq type 'array) items)
+          (setq prop (append prop
+                             `((items . ((type . ,(emacs-mcp--type-to-json-schema items))))))))
         (when desc
           (setq prop (append prop `((description . ,desc)))))
         (push (cons name prop) properties)
@@ -132,6 +136,9 @@ Signals an error with details on validation failure."
            (pair (assoc name args)))
       ;; Check required
       (when (and req (not pair))
+        (error "Missing required argument: %s" name))
+      ;; Required null check: null values only accepted for optional
+      (when (and req pair (eq (cdr pair) :null))
         (error "Missing required argument: %s" name))
       ;; Type check if present and not null
       (when (and pair (not (eq (cdr pair) :null)))
@@ -172,6 +179,7 @@ Signals an error on type mismatch."
   "Wrap RESULT into an MCP CallToolResult alist.
 - String: wrap as text content with isError=false.
 - Vector of alists with `type' keys: use as content, isError=false.
+- List of alists with `type' keys: convert to vector, isError=false.
 - Symbol `deferred': return as-is (not wrapped)."
   (cond
    ;; Deferred: pass through
@@ -185,6 +193,12 @@ Signals an error on type mismatch."
          (> (length result) 0)
          (assq 'type (aref result 0)))
     `((content . ,result)
+      (isError . :false)))
+   ;; List of content objects — convert to vector
+   ((and (listp result)
+         (consp (car result))
+         (assq 'type (car result)))
+    `((content . ,(vconcat result))
       (isError . :false)))
    ;; Fallback: convert to string
    (t
