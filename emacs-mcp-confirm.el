@@ -13,5 +13,34 @@
 
 (require 'emacs-mcp)
 
+;;;; Confirmation function
+
+(defun emacs-mcp-default-confirm (tool-name args)
+  "Prompt the user to confirm execution of TOOL-NAME with ARGS.
+TOOL-NAME is a string.  ARGS is an alist of argument names to
+values.  Returns non-nil if the user approves."
+  (let ((summary (mapconcat
+                  (lambda (pair)
+                    (format "%s=%S" (car pair) (cdr pair)))
+                  args ", ")))
+    (y-or-n-p (format "MCP: execute %s (%s)? " tool-name summary))))
+
+(defcustom emacs-mcp-confirm-function #'emacs-mcp-default-confirm
+  "Function called before executing tools that require confirmation.
+Receives TOOL-NAME (string) and ARGS (alist).  Returns non-nil
+to allow execution, nil to deny."
+  :type 'function
+  :group 'emacs-mcp)
+
+;;;; Confirmation helper
+
+(defun emacs-mcp--maybe-confirm (tool-name args confirm-p)
+  "Check whether TOOL-NAME with ARGS needs confirmation.
+If CONFIRM-P is non-nil, call `emacs-mcp-confirm-function'.
+Returns non-nil to proceed, nil to deny."
+  (if confirm-p
+      (funcall emacs-mcp-confirm-function tool-name args)
+    t))
+
 (provide 'emacs-mcp-confirm)
 ;;; emacs-mcp-confirm.el ends here
