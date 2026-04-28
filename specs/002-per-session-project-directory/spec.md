@@ -41,6 +41,10 @@ present:
 - The server MUST validate the path (see FR-3).
 - The validated path is stored in the session's `project-dir` slot.
 
+If `projectDir` is present but fails validation, the server SHALL return
+a JSON-RPC error response (error code -32602, invalid params) and SHALL
+NOT create a session.
+
 When absent, the current fallback chain applies unchanged:
 1. `emacs-mcp--project-dir` (global, set at server startup)
 2. `emacs-mcp--resolve-project-dir` fallback
@@ -65,7 +69,8 @@ requiring a valid session.
 - The server MUST validate the path (see FR-3).
 - On success, updates the session's `project-dir` slot and returns the
   new project directory.
-- On failure, returns a JSON-RPC error (invalid params).
+- On failure, returns a JSON-RPC error (error code -32602, invalid
+  params). The session's project directory is unchanged.
 
 **Response result:**
 ```json
