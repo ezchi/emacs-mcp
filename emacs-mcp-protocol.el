@@ -34,19 +34,35 @@
 
 (defun emacs-mcp--protocol-dispatch (msg session-id)
   "Dispatch a parsed JSON-RPC MSG in SESSION-ID context.
-Returns a JSON-RPC response alist, or nil for notifications."
-  (let* ((method (alist-get 'method msg))
-         (id (alist-get 'id msg))
-         (handler (cdr (assoc method
-                              emacs-mcp--method-dispatch-table))))
-    (if handler
-        (funcall handler msg session-id)
-      ;; Unknown method
-      (when (emacs-mcp--jsonrpc-request-p msg)
-        (emacs-mcp--jsonrpc-make-error
-         id
-         emacs-mcp--jsonrpc-method-not-found
-         (format "Method not found: %s" method))))))
+Returns a JSON-RPC response alist, or nil for notifications.
+Notifications (no id) always return nil.  Requests with null id
+are rejected with error -32600."
+  (let ((method (alist-get 'method msg))
+        (id (alist-get 'id msg)))
+    (cond
+     ;; Notification: dispatch silently, return nil
+     ((emacs-mcp--jsonrpc-notification-p msg)
+      (let ((handler (cdr (assoc method
+                                 emacs-mcp--method-dispatch-table))))
+        (when handler
+          (funcall handler msg session-id)))
+      nil)
+     ;; Request with null ID: reject
+     ((eq id :null)
+      (emacs-mcp--jsonrpc-make-error
+       :null
+       emacs-mcp--jsonrpc-invalid-request
+       "Null request IDs not allowed"))
+     ;; Request: dispatch to handler
+     (t
+      (let ((handler (cdr (assoc method
+                                 emacs-mcp--method-dispatch-table))))
+        (if handler
+            (funcall handler msg session-id)
+          (emacs-mcp--jsonrpc-make-error
+           id
+           emacs-mcp--jsonrpc-method-not-found
+           (format "Method not found: %s" method))))))))
 
 ;;;; Handler: initialize
 
@@ -120,46 +136,34 @@ Returns all registered tools with inputSchema."
 
 (defun emacs-mcp--handle-tools-call (msg session-id)
   "Handle `tools/call' request MSG in SESSION-ID context."
-  (let* ((id (alist-get 'id msg))
-         (params (alist-get 'params msg)))
-    (cond
-     ;; Reject null request IDs
-     ((eq id :null)
-      (emacs-mcp--jsonrpc-make-error
-       :null
-       emacs-mcp--jsonrpc-invalid-request
-       "Null request IDs not allowed"))
-     ;; Validate params: name must be present
-     ((not (alist-get 'name params))
-      (emacs-mcp--jsonrpc-make-error
-       id
-       emacs-mcp--jsonrpc-invalid-params
-       "Missing required field: name"))
-     ;; Normal dispatch
-     (t
-      (let* ((tool-name (alist-get 'name params))
-             (tool-args (alist-get 'arguments params))
-             (args-alist
-              (when tool-args
-                (mapcar (lambda (pair)
-                          (cons (symbol-name (car pair))
-                                (cdr pair)))
-                        tool-args))))
-        (condition-case err
-            (let ((result (emacs-mcp--dispatch-tool
-                           tool-name args-alist
-                           session-id id)))
-              (if (eq result 'deferred)
-                  (let ((resp (emacs-mcp--jsonrpc-make-response
-                               id nil)))
-                    (push (cons :deferred t) resp)
-                    resp)
-                (emacs-mcp--jsonrpc-make-response id result)))
-          (error
-           (emacs-mcp--jsonrpc-make-error
-            id
-            emacs-mcp--jsonrpc-invalid-params
-            (error-message-string err)))))))))
+  (let ((id (alist-get 'id msg)))
+    (condition-case err
+        (let* ((params (alist-get 'params msg))
+               (tool-name (and (listp params)
+                               (alist-get 'name params))))
+          (unless (stringp tool-name)
+            (error "Missing required field: name"))
+          (let* ((tool-args (alist-get 'arguments params))
+                 (args-alist
+                  (when (and tool-args (listp tool-args))
+                    (mapcar (lambda (pair)
+                              (cons (symbol-name (car pair))
+                                    (cdr pair)))
+                            tool-args)))
+                 (result (emacs-mcp--dispatch-tool
+                          tool-name args-alist
+                          session-id id)))
+            (if (eq result 'deferred)
+                (let ((resp (emacs-mcp--jsonrpc-make-response
+                             id nil)))
+                  (push (cons :deferred t) resp)
+                  resp)
+              (emacs-mcp--jsonrpc-make-response id result))))
+      (error
+       (emacs-mcp--jsonrpc-make-error
+        id
+        emacs-mcp--jsonrpc-invalid-params
+        (error-message-string err))))))
 
 ;;;; Handler: resources/list
 

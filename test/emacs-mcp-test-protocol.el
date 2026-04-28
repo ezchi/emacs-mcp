@@ -151,12 +151,12 @@
       (should (alist-get 'error resp)))))
 
 (ert-deftest emacs-mcp-test-protocol-tools-call-null-id ()
-  "Tools/call with null request ID returns error."
+  "Tools/call with null request ID returns error via dispatch."
   (emacs-mcp-test-with-protocol
     (let* ((msg `((jsonrpc . "2.0") (id . :null)
                   (method . "tools/call")
                   (params . ((name . "x")))))
-           (resp (emacs-mcp--handle-tools-call msg "s")))
+           (resp (emacs-mcp--protocol-dispatch msg "s")))
       (should (alist-get 'error resp))
       (should (= (alist-get 'code (alist-get 'error resp))
                  -32600)))))
@@ -201,6 +201,54 @@
            (resp (emacs-mcp--handle-prompts-list msg nil))
            (result (alist-get 'result resp)))
       (should (equal (alist-get 'prompts result) [])))))
+
+;;;; Centralized null ID rejection
+
+(ert-deftest emacs-mcp-test-protocol-null-id-any-method ()
+  "Null request ID rejected for any method via dispatch."
+  (emacs-mcp-test-with-protocol
+    (dolist (method '("ping" "tools/list" "resources/list"))
+      (let* ((msg `((jsonrpc . "2.0") (id . :null)
+                    (method . ,method)))
+             (resp (emacs-mcp--protocol-dispatch msg nil)))
+        (should (alist-get 'error resp))
+        (should (= (alist-get 'code (alist-get 'error resp))
+                   -32600))))))
+
+;;;; Notification handling
+
+(ert-deftest emacs-mcp-test-protocol-notification-returns-nil ()
+  "Known-method notifications return nil (no response)."
+  (emacs-mcp-test-with-protocol
+    (let* ((msg `((jsonrpc . "2.0") (method . "ping")))
+           (resp (emacs-mcp--protocol-dispatch msg nil)))
+      (should-not resp))))
+
+;;;; Malformed params
+
+(ert-deftest emacs-mcp-test-protocol-tools-call-malformed-params ()
+  "Tools/call with non-alist params returns error."
+  (emacs-mcp-test-with-protocol
+    (let* ((msg `((jsonrpc . "2.0") (id . 1)
+                  (method . "tools/call")
+                  (params . "bad")))
+           (resp (emacs-mcp--handle-tools-call msg "s")))
+      (should (alist-get 'error resp)))))
+
+(ert-deftest emacs-mcp-test-protocol-tools-call-null-arguments ()
+  "Tools/call with null arguments does not crash."
+  (emacs-mcp-test-with-protocol
+    (emacs-mcp-register-tool
+     :name "noargs" :handler (lambda (_) "ok"))
+    (let* ((pair (emacs-mcp-test--initialize))
+           (sid (car pair))
+           (msg (emacs-mcp-test--make-request
+                 1 "tools/call"
+                 `((name . "noargs")
+                   (arguments . :null))))
+           (resp (emacs-mcp--handle-tools-call msg sid))
+           (result (alist-get 'result resp)))
+      (should (equal (alist-get 'isError result) :false)))))
 
 ;;;; Unknown method
 
