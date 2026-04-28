@@ -1,30 +1,30 @@
 {
-  "currentStage": "complete",
+  "currentStage": "specification",
   "iteration": 1,
-  "specId": "001-generic-emacs-mcp-server",
-  "branch": "feature/001-generic-emacs-mcp-server",
-  "description": "Generic Emacs MCP server package — extract shared MCP infrastructure from claude-code-ide.el and gemini-cli-ide into a standalone, client-agnostic package",
+  "specId": "002-per-session-project-directory",
+  "branch": "feature/002-per-session-project-directory",
+  "description": "Allow MCP clients to specify and change the project directory per-session, stored in the session struct",
   "stages": {
     "specification": {
-      "status": "complete"
+      "status": "in_progress"
     },
     "clarification": {
-      "status": "complete"
+      "status": "pending"
     },
     "planning": {
-      "status": "complete"
+      "status": "pending"
     },
     "task_breakdown": {
-      "status": "complete"
+      "status": "pending"
     },
     "implementation": {
-      "status": "complete"
+      "status": "pending"
     },
     "validation": {
-      "status": "complete"
+      "status": "pending"
     },
     "retrospect": {
-      "status": "complete"
+      "status": "pending"
     }
   },
   "skillsUsed": {
