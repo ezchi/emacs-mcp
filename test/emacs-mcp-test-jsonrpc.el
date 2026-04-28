@@ -34,13 +34,28 @@
     (should (alist-get 'result msg))))
 
 (ert-deftest emacs-mcp-test-jsonrpc-parse-batch ()
-  "Parse a valid JSON-RPC batch array."
+  "Parse a valid JSON-RPC batch array into a vector."
   (let ((msgs (emacs-mcp--jsonrpc-parse
                "[{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"a\"},{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"b\"}]")))
+    (should (vectorp msgs))
     (should (emacs-mcp--jsonrpc-batch-p msgs))
     (should (= (length msgs) 2))
-    (should (equal (alist-get 'method (car msgs)) "a"))
-    (should (equal (alist-get 'method (cadr msgs)) "b"))))
+    (should (equal (alist-get 'method (aref msgs 0)) "a"))
+    (should (equal (alist-get 'method (aref msgs 1)) "b"))))
+
+(ert-deftest emacs-mcp-test-jsonrpc-parse-batch-single-element ()
+  "Parse a batch array with a single element."
+  (let ((msgs (emacs-mcp--jsonrpc-parse
+               "[{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"test\"}]")))
+    (should (vectorp msgs))
+    (should (emacs-mcp--jsonrpc-batch-p msgs))
+    (should (= (length msgs) 1))))
+
+(ert-deftest emacs-mcp-test-jsonrpc-parse-batch-empty-object ()
+  "Parse a batch containing an empty object."
+  (let ((msgs (emacs-mcp--jsonrpc-parse "[{}]")))
+    (should (vectorp msgs))
+    (should (emacs-mcp--jsonrpc-batch-p msgs))))
 
 (ert-deftest emacs-mcp-test-jsonrpc-parse-malformed ()
   "Malformed JSON signals an error."
@@ -54,11 +69,20 @@
     (should (equal (alist-get 'id msg) "abc-123"))))
 
 (ert-deftest emacs-mcp-test-jsonrpc-parse-null-id ()
-  "Parse a request with null ID — assq finds the id key with :null value."
+  "Parse a request with null ID."
   (let ((msg (emacs-mcp--jsonrpc-parse
               "{\"jsonrpc\":\"2.0\",\"id\":null,\"method\":\"test\"}")))
     (should (assq 'id msg))
     (should (eq (alist-get 'id msg) :null))))
+
+(ert-deftest emacs-mcp-test-jsonrpc-parse-nested-arrays ()
+  "Nested JSON arrays are parsed as vectors."
+  (let ((msg (emacs-mcp--jsonrpc-parse
+              "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"ok\"}]}}")))
+    (let ((content (alist-get 'content (alist-get 'result msg))))
+      (should (vectorp content))
+      (should (= (length content) 1))
+      (should (equal (alist-get 'type (aref content 0)) "text")))))
 
 ;;;; Type predicate tests
 
@@ -68,6 +92,11 @@
               "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"test\"}")))
     (should (emacs-mcp--jsonrpc-request-p msg))
     (should-not (emacs-mcp--jsonrpc-notification-p msg))))
+
+(ert-deftest emacs-mcp-test-jsonrpc-request-p-empty-method ()
+  "Request with empty-string method is still a request."
+  (let ((msg '((jsonrpc . "2.0") (id . 1) (method . ""))))
+    (should (emacs-mcp--jsonrpc-request-p msg))))
 
 (ert-deftest emacs-mcp-test-jsonrpc-notification-p ()
   "Identify a JSON-RPC notification."
@@ -84,14 +113,18 @@
     (should-not (emacs-mcp--jsonrpc-notification-p msg))))
 
 (ert-deftest emacs-mcp-test-jsonrpc-batch-p-single ()
-  "A single message is not a batch."
+  "A single message alist is not a batch."
   (let ((msg (emacs-mcp--jsonrpc-parse
               "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"test\"}")))
     (should-not (emacs-mcp--jsonrpc-batch-p msg))))
 
-(ert-deftest emacs-mcp-test-jsonrpc-batch-p-empty ()
-  "An empty list is not a batch."
+(ert-deftest emacs-mcp-test-jsonrpc-batch-p-nil ()
+  "Nil is not a batch."
   (should-not (emacs-mcp--jsonrpc-batch-p nil)))
+
+(ert-deftest emacs-mcp-test-jsonrpc-batch-p-empty-vector ()
+  "An empty vector is a batch (empty JSON array)."
+  (should (emacs-mcp--jsonrpc-batch-p (emacs-mcp--jsonrpc-parse "[]"))))
 
 ;;;; Response construction tests
 
@@ -118,7 +151,8 @@
 
 (ert-deftest emacs-mcp-test-jsonrpc-make-error-with-data ()
   "Build an error response with additional data."
-  (let ((resp (emacs-mcp--jsonrpc-make-error 1 -32602 "Invalid params" "details")))
+  (let ((resp (emacs-mcp--jsonrpc-make-error
+               1 -32602 "Invalid params" "details")))
     (let ((err (alist-get 'error resp)))
       (should (equal (alist-get 'data err) "details")))))
 
@@ -134,7 +168,6 @@
   (let* ((resp (emacs-mcp--jsonrpc-make-response 1 '((key . "val"))))
          (json (emacs-mcp--jsonrpc-serialize resp)))
     (should (stringp json))
-    ;; Round-trip: parse it back
     (let ((parsed (emacs-mcp--jsonrpc-parse json)))
       (should (equal (alist-get 'id parsed) 1))
       (should (equal (alist-get 'key (alist-get 'result parsed)) "val")))))
@@ -145,10 +178,22 @@
          (json (emacs-mcp--jsonrpc-serialize resp)))
     (should (stringp json))
     (let ((parsed (emacs-mcp--jsonrpc-parse json)))
-      (should (equal (alist-get 'code (alist-get 'error parsed)) -32601)))))
+      (should (equal (alist-get 'code
+                                (alist-get 'error parsed))
+                     -32601)))))
 
-(ert-deftest emacs-mcp-test-jsonrpc-serialize-batch ()
-  "Serialize a batch of responses."
+(ert-deftest emacs-mcp-test-jsonrpc-serialize-vector-batch ()
+  "Serialize a vector batch of responses."
+  (let* ((batch (vector (emacs-mcp--jsonrpc-make-response 1 '((a . 1)))
+                        (emacs-mcp--jsonrpc-make-response 2 '((b . 2)))))
+         (json (emacs-mcp--jsonrpc-serialize batch)))
+    (should (stringp json))
+    (let ((parsed (emacs-mcp--jsonrpc-parse json)))
+      (should (emacs-mcp--jsonrpc-batch-p parsed))
+      (should (= (length parsed) 2)))))
+
+(ert-deftest emacs-mcp-test-jsonrpc-serialize-list-batch ()
+  "Serialize a list of responses as a batch (convenience)."
   (let* ((batch (list (emacs-mcp--jsonrpc-make-response 1 '((a . 1)))
                       (emacs-mcp--jsonrpc-make-response 2 '((b . 2)))))
          (json (emacs-mcp--jsonrpc-serialize batch)))
@@ -156,6 +201,19 @@
     (let ((parsed (emacs-mcp--jsonrpc-parse json)))
       (should (emacs-mcp--jsonrpc-batch-p parsed))
       (should (= (length parsed) 2)))))
+
+(ert-deftest emacs-mcp-test-jsonrpc-serialize-nested-arrays ()
+  "Nested arrays (vectors) serialize correctly."
+  (let* ((content (vector `((type . "text") (text . "hello"))))
+         (result `((content . ,content) (isError . :false)))
+         (resp (emacs-mcp--jsonrpc-make-response 1 result))
+         (json (emacs-mcp--jsonrpc-serialize resp)))
+    (should (stringp json))
+    (let* ((parsed (emacs-mcp--jsonrpc-parse json))
+           (r (alist-get 'result parsed))
+           (c (alist-get 'content r)))
+      (should (vectorp c))
+      (should (equal (alist-get 'text (aref c 0)) "hello")))))
 
 ;;;; Error code constant tests
 

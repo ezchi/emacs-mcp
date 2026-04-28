@@ -9,6 +9,10 @@
 ;; This library implements JSON-RPC 2.0 message encoding, decoding,
 ;; and type predicates for the emacs-mcp package.  It is a pure data
 ;; transformation layer with no network or MCP knowledge.
+;;
+;; JSON arrays are represented as vectors throughout this layer.
+;; This ensures correct round-trip serialization of nested arrays
+;; (e.g., MCP content arrays) and makes batch detection trivial.
 
 ;;; Code:
 
@@ -32,40 +36,30 @@
 ;;;; Parsing
 
 (defun emacs-mcp--jsonrpc-parse (json-string)
-  "Parse JSON-STRING into a JSON-RPC message or list of messages.
-Returns a single alist for a single message, or a list of alists
-for a batch array.  Signals `json-parse-error' on malformed JSON."
-  (let ((parsed (json-parse-string json-string
-                                   :object-type 'alist
-                                   :array-type 'list
-                                   :null-object :null
-                                   :false-object :false)))
-    parsed))
+  "Parse JSON-STRING into a JSON-RPC message or batch vector.
+Returns a single alist for a single JSON object, or a vector of
+alists for a batch array.  JSON arrays are always parsed as
+vectors.  Signals `json-parse-error' on malformed JSON."
+  (json-parse-string json-string
+                     :object-type 'alist
+                     :array-type 'array
+                     :null-object :null
+                     :false-object :false))
 
 ;;;; Type predicates
 
 (defun emacs-mcp--jsonrpc-batch-p (parsed)
-  "Return non-nil if PARSED is a JSON-RPC batch (a list of alists)."
-  (and (listp parsed)
-       (not (null parsed))
-       ;; An alist is also a list, so we distinguish by checking
-       ;; whether the first element is itself a cons with a symbol car
-       ;; (alist entry) or a full alist (batch element).
-       ;; A batch is a list of alists; an alist has (symbol . value) pairs.
-       ;; We check: if the car is a cons whose car is a symbol, it's an alist.
-       ;; If the car is an alist (list of conses), it's a batch.
-       (let ((first (car parsed)))
-         (and (listp first)
-              (consp (car first))))))
+  "Return non-nil if PARSED is a JSON-RPC batch (a vector)."
+  (vectorp parsed))
 
 (defun emacs-mcp--jsonrpc-request-p (msg)
   "Return non-nil if MSG is a JSON-RPC request (has `method' and `id')."
-  (and (alist-get 'method msg)
+  (and (assq 'method msg)
        (assq 'id msg)))
 
 (defun emacs-mcp--jsonrpc-notification-p (msg)
   "Return non-nil if MSG is a JSON-RPC notification (has `method', no `id')."
-  (and (alist-get 'method msg)
+  (and (assq 'method msg)
        (not (assq 'id msg))))
 
 (defun emacs-mcp--jsonrpc-response-p (msg)
@@ -99,11 +93,15 @@ DATA is optional additional error data."
 ;;;; Serialization
 
 (defun emacs-mcp--jsonrpc-serialize (msg)
-  "Serialize MSG (an alist or list of alists) to a JSON string.
-MSG can be a single JSON-RPC message alist or a list of message
-alists (batch response).  Batch lists are converted to vectors
-for correct JSON array serialization."
-  (let ((obj (if (emacs-mcp--jsonrpc-batch-p msg)
+  "Serialize MSG to a JSON string.
+MSG can be a single JSON-RPC message alist, a vector of message
+alists (batch response), or a list of message alists (which is
+converted to a vector for JSON array output)."
+  (let ((obj (if (and (listp msg)
+                      (not (null msg))
+                      (consp msg)
+                      (listp (car msg))
+                      (consp (caar msg)))
                  (vconcat msg)
                msg)))
     (json-serialize obj
