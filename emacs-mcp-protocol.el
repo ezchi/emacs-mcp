@@ -18,6 +18,9 @@
 (require 'emacs-mcp-session)
 (require 'emacs-mcp-tools)
 
+(declare-function emacs-mcp--transport-complete-deferred
+                  "emacs-mcp-transport")
+
 ;;;; Method dispatch table
 
 (defvar emacs-mcp--method-dispatch-table
@@ -187,17 +190,10 @@ Returns all registered tools with inputSchema."
                                                &optional is-error)
   "Complete a deferred response for SESSION-ID and REQUEST-ID.
 RESULT is the tool result (string or content list).
-IS-ERROR if non-nil sets isError to true."
-  (let ((session (emacs-mcp--session-get session-id)))
-    (when session
-      (let* ((wrapped (if is-error
-                          (emacs-mcp--wrap-tool-error result)
-                        (emacs-mcp--wrap-tool-result result)))
-             (response (emacs-mcp--jsonrpc-make-response
-                        request-id wrapped)))
-        ;; Store in session's deferred hash for transport to deliver
-        (puthash request-id response
-                 (emacs-mcp-session-deferred session))))))
+IS-ERROR if non-nil sets isError to true.
+Delegates to the transport layer for actual delivery."
+  (emacs-mcp--transport-complete-deferred
+   session-id request-id result is-error))
 
 (provide 'emacs-mcp-protocol)
 ;;; emacs-mcp-protocol.el ends here

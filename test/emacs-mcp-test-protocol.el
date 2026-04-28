@@ -8,6 +8,7 @@
 
 (require 'ert)
 (require 'emacs-mcp-protocol)
+(require 'emacs-mcp-transport)
 
 (defmacro emacs-mcp-test-with-protocol (&rest body)
   "Run BODY with clean session and tool state."
@@ -264,16 +265,19 @@
 ;;;; Deferred response
 
 (ert-deftest emacs-mcp-test-protocol-complete-deferred ()
-  "Complete-deferred stores response in session."
+  "Complete-deferred stores response in session for delivery."
   (emacs-mcp-test-with-protocol
     (let* ((pair (emacs-mcp-test--initialize))
            (sid (car pair)))
+      ;; No live SSE process, so it stores for reconnection
       (emacs-mcp-complete-deferred sid 42 "result value")
       (let* ((session (emacs-mcp--session-get sid))
              (deferred (emacs-mcp-session-deferred session))
-             (resp (gethash 42 deferred)))
-        (should resp)
-        (should (equal (alist-get 'id resp) 42))))))
+             (entry (gethash 42 deferred)))
+        (should entry)
+        (should (eq (plist-get entry :status) 'completed))
+        (let ((resp (plist-get entry :response)))
+          (should (equal (alist-get 'id resp) 42)))))))
 
 (provide 'emacs-mcp-test-protocol)
 ;;; emacs-mcp-test-protocol.el ends here

@@ -49,13 +49,14 @@
       (should (= (cdr result) 404)))))
 
 (ert-deftest emacs-mcp-test-transport-validate-valid ()
-  "Valid session ID returns session."
+  "Valid session ID returns (session-id . session)."
   (emacs-mcp-test-with-transport
     (let* ((id (emacs-mcp--session-create "/test"))
            (result (emacs-mcp--transport-validate-session
                     `(("mcp-session-id" . ,id)))))
       (should-not (eq (car result) :error))
-      (should (equal (cdr result) id)))))
+      (should (equal (car result) id))
+      (should (emacs-mcp-session-p (cdr result))))))
 
 (ert-deftest emacs-mcp-test-transport-validate-updates-activity ()
   "Validation updates session activity timestamp."

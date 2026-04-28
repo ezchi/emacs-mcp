@@ -10,6 +10,10 @@
 ;; bridging the HTTP server to the MCP protocol handlers.  It handles
 ;; session validation, POST/GET/DELETE routing, batch processing,
 ;; SSE streams, and deferred response lifecycle.
+;;
+;; Deferred entries in the session's deferred hash are plists:
+;;   (:status pending :process PROC :timer TIMER :session-id SID)
+;;   (:status completed :response RESP)
 
 ;;; Code:
 
@@ -18,34 +22,33 @@
 (require 'emacs-mcp-session)
 (require 'emacs-mcp-protocol)
 (require 'emacs-mcp-http)
+(require 'emacs-mcp-tools)
 
 ;;;; Session validation
 
 (defun emacs-mcp--transport-validate-session (headers)
   "Validate the Mcp-Session-Id from HEADERS.
-Returns (session . session-id) on success.
-Returns (:error . STATUS-CODE) on failure, where STATUS-CODE is
-400 for missing/invalid or 404 for unknown/expired."
+Returns (session-id . session) on success.
+Returns (:error . STATUS-CODE) on failure."
   (let ((session-id (cdr (assoc "mcp-session-id" headers))))
     (cond
-     ((not session-id)
-      (cons :error 400))
-     ((not (stringp session-id))
-      (cons :error 400))
-     ((string-empty-p session-id)
+     ((or (not session-id)
+          (not (stringp session-id))
+          (string-empty-p session-id))
       (cons :error 400))
      (t
       (let ((session (emacs-mcp--session-get session-id)))
         (if session
             (progn
               (emacs-mcp--session-update-activity session)
-              (cons session session-id))
+              (cons session-id session))
           (cons :error 404)))))))
 
 ;;;; Top-level request handler
 
 (defun emacs-mcp--transport-handle-request (process method
-                                                    _path headers body)
+                                                    _path headers
+                                                    body)
   "Handle an MCP HTTP request from PROCESS.
 METHOD is the HTTP method.  HEADERS is an alist.  BODY is a string."
   (pcase method
@@ -61,8 +64,9 @@ METHOD is the HTTP method.  HEADERS is an alist.  BODY is a string."
 (defun emacs-mcp--transport-handle-post (process headers body)
   "Handle an MCP POST request from PROCESS with HEADERS and BODY."
   (let ((parsed (condition-case _err
-                    (emacs-mcp--jsonrpc-parse body)
-                  (json-parse-error nil))))
+                    (emacs-mcp--jsonrpc-parse (or body ""))
+                  (json-parse-error nil)
+                  (wrong-type-argument nil))))
     (if (not parsed)
         (emacs-mcp--transport-send-json
          process
@@ -84,7 +88,6 @@ METHOD is the HTTP method.  HEADERS is an alist.  BODY is a string."
       (let ((resp (emacs-mcp--protocol-dispatch msg nil)))
         (when resp
           (let ((session-id (alist-get :session-id resp)))
-            ;; Remove internal metadata before sending
             (setq resp (assq-delete-all :session-id resp))
             (emacs-mcp--transport-send-json
              process resp session-id)))))
@@ -95,20 +98,19 @@ METHOD is the HTTP method.  HEADERS is an alist.  BODY is a string."
         (if (eq (car validation) :error)
             (emacs-mcp--transport-send-http-error
              process (cdr validation))
-          (let* ((session-id (cdr validation))
+          (let* ((session-id (car validation))
                  (resp (emacs-mcp--protocol-dispatch
                         msg session-id)))
-            ;; Check for deferred
             (cond
-             ;; No response (notification)
+             ;; Notification: no response
              ((not resp)
               (emacs-mcp--http-send-response
                process 202 "Accepted" nil nil))
              ;; Deferred response
              ((alist-get :deferred resp)
-              (let ((clean-resp (assq-delete-all :deferred resp)))
+              (let ((clean (assq-delete-all :deferred resp)))
                 (emacs-mcp--transport-open-deferred-sse
-                 process session-id clean-resp)))
+                 process session-id clean)))
              ;; Normal response
              (t
               (emacs-mcp--transport-send-json
@@ -116,7 +118,6 @@ METHOD is the HTTP method.  HEADERS is an alist.  BODY is a string."
 
 (defun emacs-mcp--transport-handle-batch (process headers batch)
   "Handle a JSON-RPC BATCH from PROCESS with HEADERS."
-  ;; Check for initialize in batch -> error
   (let ((has-init nil))
     (seq-doseq (msg batch)
       (when (equal (alist-get 'method msg) "initialize")
@@ -128,13 +129,12 @@ METHOD is the HTTP method.  HEADERS is an alist.  BODY is a string."
           :null emacs-mcp--jsonrpc-invalid-request
           "initialize must not appear in a batch")
          nil)
-      ;; Validate session
       (let ((validation (emacs-mcp--transport-validate-session
                          headers)))
         (if (eq (car validation) :error)
             (emacs-mcp--transport-send-http-error
              process (cdr validation))
-          (let ((session-id (cdr validation))
+          (let ((session-id (car validation))
                 (responses nil)
                 (has-deferred nil))
             (seq-doseq (msg batch)
@@ -168,21 +168,26 @@ METHOD is the HTTP method.  HEADERS is an alist.  BODY is a string."
     (if (eq (car validation) :error)
         (emacs-mcp--transport-send-http-error
          process (cdr validation))
-      (let* ((session-id (cdr validation))
-             (session (emacs-mcp--session-get session-id)))
-        ;; Open SSE stream
+      (let* ((session-id (car validation))
+             (session (cdr validation)))
         (emacs-mcp--http-send-sse-headers
          process `(("Mcp-Session-Id" . ,session-id)))
-        ;; Register stream
         (push process (emacs-mcp-session-sse-streams session))
-        ;; Check for completed deferred responses to deliver
-        (let ((deferred (emacs-mcp-session-deferred session)))
-          (maphash (lambda (req-id resp)
-                     (emacs-mcp--http-send-sse-event
-                      process
-                      (emacs-mcp--jsonrpc-serialize resp))
-                     (remhash req-id deferred))
-                   (copy-hash-table deferred)))))))
+        ;; Deliver completed deferred responses
+        (let ((deferred (emacs-mcp-session-deferred session))
+              (to-remove nil))
+          (maphash
+           (lambda (req-id entry)
+             (when (and (listp entry)
+                        (eq (plist-get entry :status) 'completed))
+               (let ((resp (plist-get entry :response)))
+                 (emacs-mcp--http-send-sse-event
+                  process
+                  (emacs-mcp--jsonrpc-serialize resp)))
+               (push req-id to-remove)))
+           deferred)
+          (dolist (id to-remove)
+            (remhash id deferred)))))))
 
 ;;;; DELETE handler
 
@@ -193,7 +198,7 @@ METHOD is the HTTP method.  HEADERS is an alist.  BODY is a string."
     (if (eq (car validation) :error)
         (emacs-mcp--transport-send-http-error
          process (cdr validation))
-      (let ((session-id (cdr validation)))
+      (let ((session-id (car validation)))
         (emacs-mcp--session-remove session-id)
         (emacs-mcp--http-send-response
          process 200 "OK" nil nil)))))
@@ -236,31 +241,42 @@ Includes Mcp-Session-Id header when SESSION-ID is non-nil."
 ;;;; Deferred SSE lifecycle
 
 (defun emacs-mcp--transport-open-deferred-sse (process
-                                               session-id response)
+                                               session-id
+                                               response)
   "Open an SSE stream for a deferred RESPONSE from PROCESS.
 SESSION-ID identifies the session.  RESPONSE is the placeholder."
   (let* ((session (emacs-mcp--session-get session-id))
-         (request-id (alist-get 'id response)))
+         (request-id (alist-get 'id response))
+         (timer (run-at-time
+                 emacs-mcp-deferred-timeout nil
+                 #'emacs-mcp--transport-deferred-timeout
+                 session-id request-id)))
     (emacs-mcp--http-send-sse-headers
      process `(("Mcp-Session-Id" . ,session-id)))
-    ;; Store deferred entry with connection info
+    ;; Store deferred entry with status
     (puthash request-id
-             (list :process process :session-id session-id)
+             (list :status 'pending
+                   :process process
+                   :timer timer
+                   :session-id session-id)
              (emacs-mcp-session-deferred session))
-    ;; Start timeout timer
-    (run-at-time emacs-mcp-deferred-timeout nil
-                 #'emacs-mcp--transport-deferred-timeout
-                 session-id request-id)
     ;; Set disconnect handler
     (process-put process :on-disconnect
                  (lambda (_proc)
-                   ;; Retain deferred entry for reconnection
-                   (let ((entry (gethash
-                                 request-id
-                                 (emacs-mcp-session-deferred
-                                  session))))
-                     (when (and entry (listp entry))
-                       (plist-put entry :process nil)))))))
+                   (let* ((s (emacs-mcp--session-get session-id))
+                          (entry (when s
+                                   (gethash request-id
+                                            (emacs-mcp-session-deferred s)))))
+                     (when (and entry (listp entry)
+                                (eq (plist-get entry :status)
+                                    'pending))
+                       ;; Mark process as nil, keep entry
+                       (puthash request-id
+                                (plist-put
+                                 (plist-put entry :process nil)
+                                 :status 'disconnected)
+                                (emacs-mcp-session-deferred
+                                 s))))))))
 
 (defun emacs-mcp--transport-deferred-timeout (session-id
                                               request-id)
@@ -269,20 +285,58 @@ SESSION-ID identifies the session.  RESPONSE is the placeholder."
     (when session
       (let ((entry (gethash request-id
                             (emacs-mcp-session-deferred session))))
-        (when entry
+        (when (and entry (listp entry)
+                   (memq (plist-get entry :status)
+                         '(pending disconnected)))
           ;; Send timeout error if connection is live
-          (when (and (listp entry) (plist-get entry :process))
-            (let ((proc (plist-get entry :process)))
-              (when (process-live-p proc)
-                (emacs-mcp--http-send-sse-event
-                 proc
-                 (emacs-mcp--jsonrpc-serialize
-                  (emacs-mcp--jsonrpc-make-response
-                   request-id
-                   (emacs-mcp--wrap-tool-error
-                    "Deferred operation timed out"))))
-                (emacs-mcp--http-close-connection proc))))
+          (let ((proc (plist-get entry :process)))
+            (when (and proc (process-live-p proc))
+              (emacs-mcp--http-send-sse-event
+               proc
+               (emacs-mcp--jsonrpc-serialize
+                (emacs-mcp--jsonrpc-make-response
+                 request-id
+                 (emacs-mcp--wrap-tool-error
+                  "Deferred operation timed out"))))
+              (emacs-mcp--http-close-connection proc)))
           (remhash request-id
+                   (emacs-mcp-session-deferred session)))))))
+
+(defun emacs-mcp--transport-complete-deferred (session-id
+                                               request-id result
+                                               &optional is-error)
+  "Complete deferred REQUEST-ID in SESSION-ID with RESULT.
+IS-ERROR if non-nil marks the result as an error.
+Delivers to the live SSE stream if available, otherwise stores
+for reconnection delivery."
+  (let ((session (emacs-mcp--session-get session-id)))
+    (when session
+      (let* ((entry (gethash request-id
+                             (emacs-mcp-session-deferred session)))
+             (wrapped (if is-error
+                          (emacs-mcp--wrap-tool-error result)
+                        (emacs-mcp--wrap-tool-result result)))
+             (response (emacs-mcp--jsonrpc-make-response
+                        request-id wrapped))
+             (proc (and entry (listp entry)
+                        (plist-get entry :process))))
+        ;; Cancel timeout timer
+        (when (and entry (listp entry)
+                   (plist-get entry :timer))
+          (cancel-timer (plist-get entry :timer)))
+        ;; Deliver or store
+        (if (and proc (process-live-p proc))
+            (progn
+              (emacs-mcp--http-send-sse-event
+               proc
+               (emacs-mcp--jsonrpc-serialize response))
+              (emacs-mcp--http-close-connection proc)
+              (remhash request-id
+                       (emacs-mcp-session-deferred session)))
+          ;; Store for reconnection
+          (puthash request-id
+                   (list :status 'completed
+                         :response response)
                    (emacs-mcp-session-deferred session)))))))
 
 (defun emacs-mcp--transport-open-batch-sse (process session-id
@@ -290,19 +344,21 @@ SESSION-ID identifies the session.  RESPONSE is the placeholder."
   "Open SSE stream for a batch with deferred RESPONSES."
   (emacs-mcp--http-send-sse-headers
    process `(("Mcp-Session-Id" . ,session-id)))
-  ;; Send immediate responses now, track deferred
   (dolist (resp responses)
     (if (alist-get :deferred resp)
         (let* ((clean (assq-delete-all :deferred resp))
                (req-id (alist-get 'id clean))
-               (session (emacs-mcp--session-get session-id)))
-          (puthash req-id
-                   (list :process process
-                         :session-id session-id)
-                   (emacs-mcp-session-deferred session))
-          (run-at-time emacs-mcp-deferred-timeout nil
+               (session (emacs-mcp--session-get session-id))
+               (timer (run-at-time
+                       emacs-mcp-deferred-timeout nil
                        #'emacs-mcp--transport-deferred-timeout
-                       session-id req-id))
+                       session-id req-id)))
+          (puthash req-id
+                   (list :status 'pending
+                         :process process
+                         :timer timer
+                         :session-id session-id)
+                   (emacs-mcp-session-deferred session)))
       (emacs-mcp--http-send-sse-event
        process
        (emacs-mcp--jsonrpc-serialize resp)))))
