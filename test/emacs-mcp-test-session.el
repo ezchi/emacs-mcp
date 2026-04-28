@@ -124,8 +124,9 @@
       (let ((new-timer (emacs-mcp-session-timer session)))
         ;; Old timer should be cancelled
         (should-not (memq old-timer timer-list))
-        ;; New timer should exist and be different
-        (should (timerp new-timer))))))
+        ;; New timer should be a different, active timer
+        (should-not (eq new-timer old-timer))
+        (should (memq new-timer timer-list))))))
 
 (ert-deftest emacs-mcp-test-session-timer-exists ()
   "Session has a timer after creation."
@@ -166,13 +167,13 @@
   "Session is removed after idle timeout expires."
   (emacs-mcp-test-with-clean-sessions
     (let ((emacs-mcp-session-timeout 0.1))
-      (let ((id (emacs-mcp--session-create "/tmp")))
+      (let ((id (emacs-mcp--session-create "/tmp"))
+            (deadline (+ (float-time) 2.0)))
         (should (emacs-mcp--session-get id))
-        ;; Wait for timeout to fire
-        (sleep-for 0.2)
-        ;; Process timers
-        (let ((timer-event-last-1 nil))
-          (while (accept-process-output nil 0.01)))
+        ;; Wait for timeout to fire with bounded deadline
+        (while (and (emacs-mcp--session-get id)
+                    (< (float-time) deadline))
+          (sleep-for 0.05))
         (should-not (emacs-mcp--session-get id))))))
 
 (ert-deftest emacs-mcp-test-session-urandom-absence ()
