@@ -1,0 +1,37 @@
+{
+  "currentStage": "validation",
+  "iteration": 1,
+  "specId": "001-generic-emacs-mcp-server",
+  "branch": "feature/001-generic-emacs-mcp-server",
+  "description": "Generic Emacs MCP server package — extract shared MCP infrastructure from claude-code-ide.el and gemini-cli-ide into a standalone, client-agnostic package",
+  "stages": {
+    "specification": {
+      "status": "complete"
+    },
+    "clarification": {
+      "status": "complete"
+    },
+    "planning": {
+      "status": "complete"
+    },
+    "task_breakdown": {
+      "status": "complete"
+    },
+    "implementation": {
+      "status": "complete"
+    },
+    "validation": {
+      "status": "pending"
+    },
+    "retrospect": {
+      "status": "pending"
+    }
+  },
+  "skillsUsed": {
+    "specification": [],
+    "clarification": [],
+    "planning": [],
+    "task_breakdown": [],
+    "implementation": []
+  }
+}
