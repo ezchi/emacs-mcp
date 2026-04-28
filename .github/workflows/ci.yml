@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        emacs-version:
+          - "29.1"
+          - "29.4"
+          - "30.1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Emacs ${{ matrix.emacs-version }}
+        uses: purcell/setup-emacs@master
+        with:
+          version: ${{ matrix.emacs-version }}
+
+      - name: Byte-compile
+        run: |
+          emacs --batch \
+            -L . \
+            --eval "(setq byte-compile-error-on-warn t)" \
+            -f batch-byte-compile \
+            emacs-mcp.el \
+            emacs-mcp-jsonrpc.el \
+            emacs-mcp-session.el \
+            emacs-mcp-tools.el \
+            emacs-mcp-confirm.el \
+            emacs-mcp-lockfile.el \
+            emacs-mcp-http.el \
+            emacs-mcp-protocol.el \
+            emacs-mcp-transport.el \
+            emacs-mcp-tools-builtin.el
+
+      - name: Checkdoc
+        run: |
+          emacs --batch \
+            -L . \
+            --eval "(require 'checkdoc)" \
+            --eval '
+            (let ((files (list "emacs-mcp.el"
+                               "emacs-mcp-jsonrpc.el"
+                               "emacs-mcp-session.el"
+                               "emacs-mcp-tools.el"
+                               "emacs-mcp-confirm.el"
+                               "emacs-mcp-lockfile.el"
+                               "emacs-mcp-http.el"
+                               "emacs-mcp-protocol.el"
+                               "emacs-mcp-transport.el"
+                               "emacs-mcp-tools-builtin.el"))
+                  (errors nil))
+              (dolist (file files)
+                (with-current-buffer (find-file-noselect file)
+                  (let ((results (checkdoc-file file)))
+                    (when results
+                      (push (format "%s: %s" file results) errors)))))
+              (when errors
+                (dolist (e (nreverse errors))
+                  (message "%s" e))
+                (kill-emacs 1)))'
+
+      - name: Run ERT tests
+        run: |
+          emacs --batch \
+            -L . \
+            -L test \
+            -l emacs-mcp-test-jsonrpc.el \
+            -l emacs-mcp-test-session.el \
+            -l emacs-mcp-test-tools.el \
+            -l emacs-mcp-test-confirm.el \
+            -l emacs-mcp-test-lockfile.el \
+            -l emacs-mcp-test-http.el \
+            -l emacs-mcp-test-protocol.el \
+            -l emacs-mcp-test-transport.el \
+            -l emacs-mcp-test-tools-builtin.el \
+            -f ert-run-tests-batch-and-exit

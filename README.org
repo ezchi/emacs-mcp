@@ -1,0 +1,451 @@
+#+TITLE: emacs-mcp
+#+AUTHOR: emacs-mcp contributors
+#+LANGUAGE: en
+
+*emacs-mcp* exposes an [[https://modelcontextprotocol.io/][MCP (Model Context Protocol)]] server from a
+running Emacs instance, allowing AI assistants -- Claude Code, Gemini CLI,
+Codex CLI, and others -- to interact with your editor programmatically.
+
+- *Transport*: Streamable HTTP (MCP protocol version =2025-03-26=)
+- *Endpoint*: =http://127.0.0.1:PORT/mcp=
+- *Minimum Emacs*: 29.1
+- *License*: AGPL-3.0-or-later
+
+* Installation
+
+** MELPA (recommended)
+
+Once the package is available on MELPA:
+
+#+begin_src emacs-lisp
+(use-package emacs-mcp
+  :ensure t
+  :config
+  (emacs-mcp-mode 1))
+#+end_src
+
+** Manual
+
+Clone the repository and add it to your =load-path=:
+
+#+begin_src shell
+git clone https://github.com/anthropics/emacs-mcp.git ~/path/to/emacs-mcp
+#+end_src
+
+#+begin_src emacs-lisp
+(add-to-list 'load-path "~/path/to/emacs-mcp")
+(require 'emacs-mcp)
+(emacs-mcp-mode 1)
+#+end_src
+
+* Quick Start
+
+1. Enable the global minor mode:
+
+   #+begin_src emacs-lisp
+   (emacs-mcp-mode 1)
+   #+end_src
+
+   Or interactively: =M-x emacs-mcp-mode RET=.
+
+2. Alternatively, start and stop the server manually:
+
+   #+begin_src emacs-lisp
+   M-x emacs-mcp-start RET   ;; start the server
+   M-x emacs-mcp-stop RET    ;; stop the server
+   M-x emacs-mcp-restart RET ;; restart the server
+   #+end_src
+
+3. The mode-line shows =MCP= when the server is active.  The server
+   listens on =127.0.0.1= only (never exposed to the network).
+
+4. Point your LLM agent at the endpoint printed in the echo area, e.g.
+   =http://127.0.0.1:38840/mcp=.  See [[*Connecting LLM Agents]] for
+   concrete configuration examples.
+
+* Configuration
+
+All options live in the =emacs-mcp= customize group (=M-x customize-group
+RET emacs-mcp RET=).
+
+** Server options
+
+| Variable                               | Default         | Description                                             |
+|----------------------------------------+-----------------+---------------------------------------------------------|
+| =emacs-mcp-server-port=               | =38840=         | TCP port (integer) or =nil= for auto-select             |
+| =emacs-mcp-project-directory=         | =nil=           | Project root; =nil= auto-detects via =project-current=  |
+| =emacs-mcp-lockfile-directory=        | =~/.emacs-mcp= | Directory for lockfiles (server discovery)               |
+| =emacs-mcp-extra-lockfile-directories= | =nil=          | Additional lockfile directories (list of paths)          |
+| =emacs-mcp-session-timeout=           | =1800=          | Idle session timeout in seconds                          |
+| =emacs-mcp-deferred-timeout=          | =300=           | Deferred tool result timeout in seconds                  |
+| =emacs-mcp-confirm-function=          | =emacs-mcp-default-confirm= | Confirmation function for sensitive tools    |
+
+** Tool enable/disable
+
+Each built-in tool has a boolean defcustom.  Set any to =nil= before
+starting the server (or call =emacs-mcp-restart= after changing) to
+disable that tool.
+
+| Variable                                    | Default | Tool              |
+|---------------------------------------------+---------+-------------------|
+| =emacs-mcp-enable-tool-project-info=       | =t=     | project-info      |
+| =emacs-mcp-enable-tool-list-buffers=       | =t=     | list-buffers      |
+| =emacs-mcp-enable-tool-open-file=          | =t=     | open-file         |
+| =emacs-mcp-enable-tool-get-buffer-content= | =t=     | get-buffer-content |
+| =emacs-mcp-enable-tool-get-diagnostics=    | =t=     | get-diagnostics   |
+| =emacs-mcp-enable-tool-imenu-symbols=      | =t=     | imenu-symbols     |
+| =emacs-mcp-enable-tool-xref-find-references= | =t=  | xref-find-references |
+| =emacs-mcp-enable-tool-xref-find-apropos=  | =t=     | xref-find-apropos |
+| =emacs-mcp-enable-tool-treesit-info=       | =t=     | treesit-info      |
+| =emacs-mcp-enable-tool-execute-elisp=      | =nil=   | execute-elisp     |
+
+Note: =execute-elisp= is disabled by default for security.  See [[*Security]].
+
+* Connecting LLM Agents
+
+The MCP endpoint for all agents is:
+
+: http://127.0.0.1:38840/mcp
+
+(Replace =38840= with your configured port if different.)
+
+** Claude Code
+
+Add to =.claude/settings.json= in your project root:
+
+#+begin_src json
+{
+  "mcpServers": {
+    "emacs": {
+      "url": "http://127.0.0.1:38840/mcp"
+    }
+  }
+}
+#+end_src
+
+Claude Code discovers the server via the =url= field and connects over
+Streamable HTTP automatically.
+
+** Gemini CLI
+
+Configure Gemini CLI to use the MCP endpoint.  In your Gemini CLI
+configuration (=~/.gemini/settings.json= or equivalent):
+
+#+begin_src json
+{
+  "mcpServers": {
+    "emacs": {
+      "url": "http://127.0.0.1:38840/mcp"
+    }
+  }
+}
+#+end_src
+
+** Codex CLI
+
+Configure Codex CLI with the MCP server endpoint.  In your Codex CLI
+configuration:
+
+#+begin_src json
+{
+  "mcpServers": {
+    "emacs": {
+      "url": "http://127.0.0.1:38840/mcp"
+    }
+  }
+}
+#+end_src
+
+** Generic / curl walkthrough
+
+Any MCP-capable client can connect over Streamable HTTP.  Below is a
+manual walkthrough using =curl= that illustrates the three core
+request/response cycles.
+
+*** Step 1: Initialize
+
+#+begin_src shell
+curl -s -X POST http://127.0.0.1:38840/mcp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+      "protocolVersion": "2025-03-26",
+      "clientInfo": { "name": "curl-demo", "version": "0.1" },
+      "capabilities": {}
+    }
+  }'
+#+end_src
+
+The response includes a =Mcp-Session-Id= header.  Extract it:
+
+#+begin_src shell
+SESSION_ID="<value from Mcp-Session-Id header>"
+#+end_src
+
+Send the =notifications/initialized= notification (no =id= field):
+
+#+begin_src shell
+curl -s -X POST http://127.0.0.1:38840/mcp \
+  -H "Content-Type: application/json" \
+  -H "Mcp-Session-Id: $SESSION_ID" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "notifications/initialized"
+  }'
+#+end_src
+
+*** Step 2: List available tools
+
+#+begin_src shell
+curl -s -X POST http://127.0.0.1:38840/mcp \
+  -H "Content-Type: application/json" \
+  -H "Mcp-Session-Id: $SESSION_ID" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 2,
+    "method": "tools/list"
+  }'
+#+end_src
+
+Returns a JSON-RPC response with the =tools= array containing every
+registered tool and its =inputSchema=.
+
+*** Step 3: Call a tool
+
+#+begin_src shell
+curl -s -X POST http://127.0.0.1:38840/mcp \
+  -H "Content-Type: application/json" \
+  -H "Mcp-Session-Id: $SESSION_ID" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 3,
+    "method": "tools/call",
+    "params": {
+      "name": "project-info",
+      "arguments": {}
+    }
+  }'
+#+end_src
+
+Returns a =CallToolResult= with text content containing project metadata.
+
+* Built-in Tools
+
+| Tool                  | Description                                          | Parameters                                                                                |
+|-----------------------+------------------------------------------------------+-------------------------------------------------------------------------------------------|
+| =project-info=       | Return project metadata (directory, active buffer, file count) | /none/                                                                              |
+| =list-buffers=       | Return open project buffers with path, modified flag, major mode | /none/                                                                            |
+| =open-file=          | Open a file in Emacs, optionally at a line range     | =path= (string, required), =startLine= (integer), =endLine= (integer)                    |
+| =get-buffer-content= | Return buffer text, optionally for a line range      | =file= (string, required), =startLine= (integer), =endLine= (integer)                    |
+| =get-diagnostics=    | Return flymake/flycheck diagnostics                  | =file= (string, optional; omit for all project buffers)                                   |
+| =imenu-symbols=      | List symbols (functions, variables, etc.) from imenu  | =file= (string, required)                                                                |
+| =xref-find-references= | Find references to a symbol                       | =identifier= (string, required), =file= (string, optional)                               |
+| =xref-find-apropos=  | Search symbols matching a regexp pattern             | =pattern= (string, required)                                                              |
+| =treesit-info=       | Return tree-sitter syntax info for a file or position | =file= (string, required), =line= (integer), =column= (integer)                         |
+| =execute-elisp=      | Evaluate an Emacs Lisp expression (requires confirmation) | =expression= (string, required)                                                      |
+
+All file-path parameters must be absolute paths within the project
+directory.  Paths outside the project are rejected.
+
+* Adding Custom Tools
+
+** emacs-mcp-deftool
+
+The =emacs-mcp-deftool= macro defines and registers a tool in one step:
+
+#+begin_src emacs-lisp
+(emacs-mcp-deftool my-word-count
+  "Count words in a file."
+  ((:name "file" :type string :required t
+    :description "Absolute path to the file"))
+  (lambda (args)
+    (let ((file (cdr (assoc "file" args))))
+      (with-temp-buffer
+        (insert-file-contents file)
+        (format "%d words" (count-words (point-min) (point-max)))))))
+#+end_src
+
+To require user confirmation before execution, add =:confirm t=:
+
+#+begin_src emacs-lisp
+(emacs-mcp-deftool my-dangerous-tool
+  "Do something destructive."
+  ((:name "target" :type string :required t))
+  (lambda (args)
+    ;; handler body
+    "done")
+  :confirm t)
+#+end_src
+
+** emacs-mcp-register-tool / emacs-mcp-unregister-tool
+
+For programmatic registration:
+
+#+begin_src emacs-lisp
+(emacs-mcp-register-tool
+ :name "my-tool"
+ :description "A custom tool."
+ :params '((:name "arg1" :type string :required t
+            :description "First argument"))
+ :handler (lambda (args)
+            (cdr (assoc "arg1" args)))
+ :confirm nil)
+
+;; Remove it later:
+(emacs-mcp-unregister-tool "my-tool")
+#+end_src
+
+** Parameter type mapping
+
+Tool parameter =:type= keywords map to JSON Schema types:
+
+| Elisp keyword | JSON Schema type |
+|---------------+------------------|
+| =string=      | ="string"=       |
+| =integer=     | ="integer"=      |
+| =number=      | ="number"=       |
+| =boolean=     | ="boolean"=      |
+| =array=       | ="array"=        |
+| =object=      | ="object"=       |
+
+For array parameters, use =:items= to specify the element type:
+
+#+begin_src emacs-lisp
+(:name "tags" :type array :items string :description "List of tags")
+#+end_src
+
+** Return conventions
+
+Tool handlers return values that are automatically wrapped into MCP
+=CallToolResult= responses:
+
+- *String*: wrapped as a single text content item with =isError=false=.
+- *Vector of alists* with a =type= key: used directly as the content
+  array.
+- *List of alists* with a =type= key: converted to a vector, used as the
+  content array.
+- *Symbol =deferred=*: signals that the result will be delivered later via
+  =emacs-mcp-complete-deferred=.
+- *Anything else*: converted to a string with =format "%S"= and wrapped
+  as text content.
+
+On error, the handler should signal an Emacs error; the framework catches
+it and returns an =isError=true= response with the error message.
+
+** Complete worked example
+
+A tool that returns the git status of the project:
+
+#+begin_src emacs-lisp
+(emacs-mcp-deftool git-status
+  "Return the git status of the current project."
+  ()  ;; no parameters
+  (lambda (_args)
+    (let* ((session (emacs-mcp--session-get
+                     emacs-mcp--current-session-id))
+           (dir (emacs-mcp-session-project-dir session))
+           (default-directory dir))
+      (with-temp-buffer
+        (if (zerop (call-process "git" nil t nil "status" "--short"))
+            (if (= (point-min) (point-max))
+                "Working tree clean."
+              (buffer-string))
+          (error "Not a git repository: %s" dir))))))
+#+end_src
+
+After evaluating this form, the tool appears in =tools/list= responses
+immediately (no restart needed).
+
+* Lockfile Discovery
+
+When the MCP server starts, it writes JSON lockfiles so that external
+tools can discover the server automatically.
+
+** Lockfile locations
+
+- Primary: =~/.emacs-mcp/<PORT>.lock= (controlled by
+  =emacs-mcp-lockfile-directory=)
+- Extra: any directories listed in =emacs-mcp-extra-lockfile-directories=
+
+** Lockfile format
+
+#+begin_src json
+{
+  "pid": 12345,
+  "port": 38840,
+  "workspaceFolders": ["/home/user/project"],
+  "serverName": "emacs-mcp",
+  "transport": "streamable-http"
+}
+#+end_src
+
+** Lifecycle
+
+- Lockfiles are created when the server starts.
+- Lockfiles are removed when the server stops (including on
+  =kill-emacs=).
+- Stale lockfiles (from dead PIDs) are cleaned up automatically on
+  startup.
+
+* Security
+
+** Localhost binding
+
+The HTTP server binds to =127.0.0.1= only.  It is never exposed to the
+network.
+
+** Origin validation
+
+The server validates the =Origin= header on incoming requests.  Only
+localhost origins are accepted:
+
+- =http://127.0.0.1=, =https://127.0.0.1=
+- =http://localhost=, =https://localhost=
+- =http://[::1]=, =https://[::1]=
+
+Any port suffix is allowed on these origins.  Requests with non-localhost
+origins receive a =403 Forbidden= response.  Origins containing control
+characters are always rejected.
+
+** Path authorization
+
+All file-path parameters are validated against the session's project
+directory.  Paths outside the project are rejected with an error.  This
+prevents an LLM agent from reading or modifying files outside the project
+scope.
+
+** Confirmation policy
+
+Tools can declare =:confirm t= to require user confirmation before
+execution.  The built-in =execute-elisp= tool uses this.  The
+confirmation function is controlled by =emacs-mcp-confirm-function=
+(default: =emacs-mcp-default-confirm=, which uses =y-or-n-p=).
+
+You can replace it with a custom function:
+
+#+begin_src emacs-lisp
+(setq emacs-mcp-confirm-function
+      (lambda (tool-name args)
+        ;; Always deny execute-elisp, allow everything else
+        (not (equal tool-name "execute-elisp"))))
+#+end_src
+
+** execute-elisp
+
+The =execute-elisp= tool is disabled by default
+(=emacs-mcp-enable-tool-execute-elisp= is =nil=).  When enabled, it
+evaluates arbitrary Emacs Lisp and always requires user confirmation via
+the confirmation policy.  Enable it only if you understand the risks:
+
+#+begin_src emacs-lisp
+(setq emacs-mcp-enable-tool-execute-elisp t)
+#+end_src
+
+* License
+
+emacs-mcp is licensed under the GNU Affero General Public License,
+version 3 or later (AGPL-3.0-or-later).  See the [[file:LICENSE][LICENSE]] file for the
+full text.
