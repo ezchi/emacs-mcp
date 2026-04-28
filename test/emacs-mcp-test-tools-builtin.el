@@ -147,21 +147,24 @@
 
 ;;;; execute-elisp
 
-(ert-deftest emacs-mcp-test-builtin-execute-elisp-confirm-deny ()
-  "execute-elisp denied returns error."
+(ert-deftest emacs-mcp-test-builtin-execute-elisp-evaluates ()
+  "execute-elisp evaluates expression (confirm handled by dispatch)."
   (emacs-mcp-test-with-builtin
-    (let ((emacs-mcp-confirm-function #'ignore))
-      (should-error
-       (emacs-mcp--tool-execute-elisp
-        '(("expression" . "(+ 1 2)")))))))
+    (should (equal (emacs-mcp--tool-execute-elisp
+                    '(("expression" . "(+ 1 2)")))
+                   "3"))))
 
-(ert-deftest emacs-mcp-test-builtin-execute-elisp-confirm-allow ()
-  "execute-elisp allowed evaluates expression."
+(ert-deftest emacs-mcp-test-builtin-execute-elisp-via-dispatch ()
+  "execute-elisp confirm deny via dispatch returns tool error."
   (emacs-mcp-test-with-builtin
-    (let ((emacs-mcp-confirm-function #'always))
-      (should (equal (emacs-mcp--tool-execute-elisp
-                      '(("expression" . "(+ 1 2)")))
-                     "3")))))
+    (let ((emacs-mcp-enable-tool-execute-elisp t)
+          (emacs-mcp-confirm-function #'ignore))
+      (emacs-mcp--register-builtin-tools)
+      (let ((result (emacs-mcp--dispatch-tool
+                     "execute-elisp"
+                     '(("expression" . "(+ 1 2)"))
+                     emacs-mcp--current-session-id 1)))
+        (should (equal (alist-get 'isError result) t))))))
 
 ;;;; Enable defcustoms
 

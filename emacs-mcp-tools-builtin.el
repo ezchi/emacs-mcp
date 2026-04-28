@@ -101,14 +101,17 @@ Signals an error if PATH is outside the project directory."
   "Return project metadata as a JSON string."
   (let* ((session (emacs-mcp--session-get
                    emacs-mcp--current-session-id))
-         (project-dir (emacs-mcp-session-project-dir session))
+         (project-dir (or (and session
+                               (emacs-mcp-session-project-dir
+                                session))
+                          (error "No active session")))
          (active-buf (let ((buf (window-buffer
                                  (selected-window))))
                        (when (buffer-file-name buf)
                          (buffer-file-name buf))))
          (file-count (length
                       (directory-files-recursively
-                       project-dir "." nil nil t))))
+                       project-dir "\\`[^.]"))))
     (json-serialize
      `((projectDir . ,project-dir)
        (activeBuffer . ,(or active-buf :null))
@@ -121,7 +124,10 @@ Signals an error if PATH is outside the project directory."
   "Return project buffers as a JSON array."
   (let* ((session (emacs-mcp--session-get
                    emacs-mcp--current-session-id))
-         (project-dir (emacs-mcp-session-project-dir session))
+         (project-dir (or (and session
+                               (emacs-mcp-session-project-dir
+                                session))
+                          (error "No active session")))
          (result nil))
     (dolist (buf (buffer-list))
       (let ((file (buffer-file-name buf)))
@@ -189,10 +195,12 @@ Signals an error if PATH is outside the project directory."
   (let ((file (cdr (assoc "file" args)))
         (diagnostics nil))
     (if file
-        (let ((buf (get-file-buffer file)))
-          (when buf
-            (setq diagnostics
-                  (emacs-mcp--collect-diagnostics buf))))
+        (progn
+          (emacs-mcp--check-path-authorization file)
+          (let ((buf (get-file-buffer file)))
+            (when buf
+              (setq diagnostics
+                    (emacs-mcp--collect-diagnostics buf)))))
       ;; All project buffers
       (let* ((session (emacs-mcp--session-get
                        emacs-mcp--current-session-id))
@@ -301,18 +309,21 @@ Signals an error if PATH is outside the project directory."
     (when file
       (emacs-mcp--check-path-authorization file)
       (find-file-noselect file))
-    (let ((xrefs (xref-matches-in-files
-                  identifier
-                  (project-files (project-current t)))))
+    (let ((xrefs (condition-case nil
+                     (xref-backend-references
+                      (xref-find-backend) identifier)
+                   (error nil))))
       (if (null xrefs)
           "No references found."
         (mapconcat
          (lambda (xref)
-           (let ((loc (xref-match-item-location xref)))
-             (format "%s:%d: %s"
-                     (xref-file-location-file loc)
-                     (xref-file-location-line loc)
-                     (xref-match-item-summary xref))))
+           (let ((loc (xref-item-location xref)))
+             (if (cl-typep loc 'xref-file-location)
+                 (format "%s:%d: %s"
+                         (xref-file-location-file loc)
+                         (xref-file-location-line loc)
+                         (xref-item-summary xref))
+               (format "?: %s" (xref-item-summary xref)))))
          xrefs "\n")))))
 
 ;;;; Tool 8: xref-find-apropos
@@ -337,6 +348,8 @@ Signals an error if PATH is outside the project directory."
 
 (defun emacs-mcp--tool-treesit-info (args)
   "Return tree-sitter info for file in ARGS."
+  (unless (featurep 'treesit)
+    (error "Tree-sitter not available in this Emacs build"))
   (let ((file (cdr (assoc "file" args)))
         (line (cdr (assoc "line" args)))
         (column (cdr (assoc "column" args))))
@@ -375,11 +388,9 @@ Signals an error if PATH is outside the project directory."
 ;;;; Tool 10: execute-elisp
 
 (defun emacs-mcp--tool-execute-elisp (args)
-  "Evaluate an Emacs Lisp expression from ARGS."
+  "Evaluate an Emacs Lisp expression from ARGS.
+Confirmation is handled by the tool dispatch (:confirm t)."
   (let ((expr (cdr (assoc "expression" args))))
-    (unless (emacs-mcp--maybe-confirm "execute-elisp"
-                                      args t)
-      (error "User denied execution."))
     (prin1-to-string (eval (read expr) t))))
 
 ;;;; Tool registration
