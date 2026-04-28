@@ -100,5 +100,10 @@
   (should (emacs-mcp--http-validate-origin
            "http://127.0.0.1")))
 
+(ert-deftest emacs-mcp-test-http-origin-newline-injection ()
+  "Origin with embedded newline is rejected."
+  (should-not (emacs-mcp--http-validate-origin
+               "x\nhttp://localhost")))
+
 (provide 'emacs-mcp-test-http)
 ;;; emacs-mcp-test-http.el ends here

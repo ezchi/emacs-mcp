@@ -225,10 +225,13 @@ EXTRA-HEADERS is an optional alist of additional headers."
 
 (defun emacs-mcp--http-validate-origin (origin)
   "Return non-nil if ORIGIN is a valid localhost origin.
-Allows http/https on 127.0.0.1, localhost, or [::1] with any port."
+Allows http/https on 127.0.0.1, localhost, or [::1] with any port.
+Rejects origins containing control characters."
   (and (stringp origin)
-       (string-match
-        "^https?://\\(127\\.0\\.0\\.1\\|localhost\\|\\[::1\\]\\)\\(:[0-9]+\\)?$"
+       ;; Reject control characters (prevents newline injection)
+       (not (string-match-p "[\x00-\x1f\x7f]" origin))
+       (string-match-p
+        "\\`https?://\\(127\\.0\\.0\\.1\\|localhost\\|\\[::1\\]\\)\\(:[0-9]+\\)?\\'"
         origin)))
 
 (provide 'emacs-mcp-http)
