@@ -46,8 +46,12 @@ Signals `user-error' if /dev/urandom is unavailable."
   (let ((bytes (with-temp-buffer
                  (set-buffer-multibyte nil)
                  (let ((coding-system-for-read 'no-conversion))
-                   (call-process "head" "/dev/urandom" t nil
-                                 "-c" "16"))
+                   (unless (zerop (call-process "head" "/dev/urandom"
+                                                t nil "-c" "16"))
+                     (error "Failed to read from /dev/urandom"))
+                   (when (/= (buffer-size) 16)
+                     (error "Expected 16 bytes, got %d"
+                            (buffer-size))))
                  (buffer-string))))
     ;; Set version nibble (byte 6): 0100xxxx
     (aset bytes 6 (logior #x40 (logand (aref bytes 6) #x0f)))

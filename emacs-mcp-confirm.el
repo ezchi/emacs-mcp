@@ -30,6 +30,7 @@ values.  Returns non-nil if the user approves."
 Receives TOOL-NAME (string) and ARGS (alist).  Returns non-nil
 to allow execution, nil to deny."
   :type 'function
+  :safe #'functionp
   :group 'emacs-mcp)
 
 ;;;; Confirmation helper

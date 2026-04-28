@@ -109,11 +109,23 @@
     (let* ((id (emacs-mcp--session-create "/tmp"))
            (session (emacs-mcp--session-get id))
            (old-time (emacs-mcp-session-last-activity session)))
-      ;; Small delay to ensure different timestamp
       (sleep-for 0.01)
       (emacs-mcp--session-update-activity session)
       (should (> (emacs-mcp-session-last-activity session)
                  old-time)))))
+
+(ert-deftest emacs-mcp-test-session-activity-update-resets-timer ()
+  "Activity update cancels old timer and starts a new one."
+  (emacs-mcp-test-with-clean-sessions
+    (let* ((id (emacs-mcp--session-create "/tmp"))
+           (session (emacs-mcp--session-get id))
+           (old-timer (emacs-mcp-session-timer session)))
+      (emacs-mcp--session-update-activity session)
+      (let ((new-timer (emacs-mcp-session-timer session)))
+        ;; Old timer should be cancelled
+        (should-not (memq old-timer timer-list))
+        ;; New timer should exist and be different
+        (should (timerp new-timer))))))
 
 (ert-deftest emacs-mcp-test-session-timer-exists ()
   "Session has a timer after creation."
@@ -135,13 +147,40 @@
 ;;;; Cleanup tests
 
 (ert-deftest emacs-mcp-test-session-cleanup-all ()
-  "Cleanup removes all sessions."
+  "Cleanup removes all sessions and cancels all timers."
   (emacs-mcp-test-with-clean-sessions
-    (emacs-mcp--session-create "/tmp/a")
-    (emacs-mcp--session-create "/tmp/b")
-    (should (= (hash-table-count emacs-mcp--sessions) 2))
-    (emacs-mcp--session-cleanup-all)
-    (should (= (hash-table-count emacs-mcp--sessions) 0))))
+    (let* ((id1 (emacs-mcp--session-create "/tmp/a"))
+           (id2 (emacs-mcp--session-create "/tmp/b"))
+           (t1 (emacs-mcp-session-timer
+                 (emacs-mcp--session-get id1)))
+           (t2 (emacs-mcp-session-timer
+                 (emacs-mcp--session-get id2))))
+      (should (= (hash-table-count emacs-mcp--sessions) 2))
+      (emacs-mcp--session-cleanup-all)
+      (should (= (hash-table-count emacs-mcp--sessions) 0))
+      ;; Timers should be cancelled
+      (should-not (memq t1 timer-list))
+      (should-not (memq t2 timer-list)))))
+
+(ert-deftest emacs-mcp-test-session-timeout-expiry ()
+  "Session is removed after idle timeout expires."
+  (emacs-mcp-test-with-clean-sessions
+    (let ((emacs-mcp-session-timeout 0.1))
+      (let ((id (emacs-mcp--session-create "/tmp")))
+        (should (emacs-mcp--session-get id))
+        ;; Wait for timeout to fire
+        (sleep-for 0.2)
+        ;; Process timers
+        (let ((timer-event-last-1 nil))
+          (while (accept-process-output nil 0.01)))
+        (should-not (emacs-mcp--session-get id))))))
+
+(ert-deftest emacs-mcp-test-session-urandom-absence ()
+  "Signal user-error when /dev/urandom is unavailable."
+  (cl-letf (((symbol-function 'file-exists-p)
+             (lambda (_f) nil)))
+    (should-error (emacs-mcp--generate-uuid)
+                  :type 'user-error)))
 
 ;;;; Resolve project directory tests
 
