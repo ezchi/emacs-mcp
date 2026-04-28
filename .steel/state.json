@@ -1,5 +1,5 @@
 {
-  "currentStage": "retrospect",
+  "currentStage": "complete",
   "iteration": 1,
   "specId": "001-generic-emacs-mcp-server",
   "branch": "feature/001-generic-emacs-mcp-server",
@@ -24,7 +24,7 @@
       "status": "complete"
     },
     "retrospect": {
-      "status": "pending"
+      "status": "complete"
     }
   },
   "skillsUsed": {
@@ -33,6 +33,7 @@
     "planning": [],
     "task_breakdown": [],
     "implementation": [],
-    "validation": []
+    "validation": [],
+    "retrospect": []
   }
 }
