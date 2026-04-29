@@ -46,7 +46,7 @@ which project context tools would use.
 
 **Implicit assumption made explicit:** When checking whether a
 client-requested path is within `emacs-mcp-allowed-project-directories`
-(FR-3, rule 4), the allowlist entries MUST also be canonicalized via
+(FR-3, rule 5), the allowlist entries MUST also be canonicalized via
 `expand-file-name` + `file-truename` before comparison.
 
 **Rationale:** If a user sets the allowlist to `~/projects` (with a
