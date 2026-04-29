@@ -401,7 +401,11 @@ Returns (session-id . response)."
         `((projectDir . "/var")))
        sid)
       (should hook-args)
-      (should (equal (car hook-args) sid))
+      (should (equal (nth 0 hook-args) sid))
+      (should (stringp (nth 1 hook-args)))  ; old-dir
+      (should (stringp (nth 2 hook-args)))  ; new-dir
+      (should (string-match-p "/tmp" (nth 1 hook-args)))
+      (should (string-match-p "/var" (nth 2 hook-args)))
       ;; Reset and try same dir — hook should NOT fire
       (setq hook-args nil)
       (emacs-mcp--handle-set-project-dir
