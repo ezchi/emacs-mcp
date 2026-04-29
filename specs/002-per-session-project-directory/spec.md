@@ -64,6 +64,9 @@ requiring a valid session.
 
 **Behavior:**
 - Requires a valid `Mcp-Session-Id` header (existing session validation).
+- The session MUST be in `ready` state (after `notifications/initialized`).
+  If still `initializing`, return JSON-RPC error (code -32600, invalid
+  request) with message "Session not ready".
 - The `projectDir` param MUST be a string containing an absolute
   directory path.
 - The server MUST validate the path (see FR-3).
@@ -91,7 +94,9 @@ client-supplied project directory paths. Validation rules:
    directory (`file-directory-p`).
 4. If `emacs-mcp-allowed-project-directories` is non-nil (see FR-4),
    the path MUST be within one of the allowed directories
-   (`file-in-directory-p`).
+   (`file-in-directory-p`). The allowlist entries MUST also be
+   canonicalized (`expand-file-name` + `file-truename`) before
+   comparison.
 
 On validation failure, signal an error with a descriptive message.
 On success, return the expanded, canonical path
@@ -194,3 +199,8 @@ arguments when `emacs-mcp/setProjectDir` succeeds.
 ## Open Questions
 
 None — all design decisions are resolved in this spec.
+
+## Changelog
+
+- [Clarification iter1] FR-2: Added session state requirement — `setProjectDir` requires `ready` state, returns -32600 if still `initializing`.
+- [Clarification iter1] FR-3: Allowlist entries are also canonicalized before comparison to prevent tilde/symlink mismatches.
