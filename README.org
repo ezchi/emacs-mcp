@@ -70,15 +70,15 @@ RET emacs-mcp RET=).
 
 ** Server options
 
-| Variable                               | Default         | Description                                             |
-|----------------------------------------+-----------------+---------------------------------------------------------|
-| =emacs-mcp-server-port=               | =38840=         | TCP port (integer) or =nil= for auto-select             |
-| =emacs-mcp-project-directory=         | =nil=           | Project root; =nil= auto-detects via =project-current=  |
-| =emacs-mcp-lockfile-directory=        | =~/.emacs-mcp= | Directory for lockfiles (server discovery)               |
-| =emacs-mcp-extra-lockfile-directories= | =nil=          | Additional lockfile directories (list of paths)          |
-| =emacs-mcp-session-timeout=           | =1800=          | Idle session timeout in seconds                          |
-| =emacs-mcp-deferred-timeout=          | =300=           | Deferred tool result timeout in seconds                  |
-| =emacs-mcp-confirm-function=          | =emacs-mcp-default-confirm= | Confirmation function for sensitive tools    |
+| Variable                               | Default                     | Description                                            |
+|----------------------------------------+-----------------------------+--------------------------------------------------------|
+| =emacs-mcp-server-port=                | =38840=                     | TCP port (integer) or =nil= for auto-select            |
+| =emacs-mcp-project-directory=          | =nil=                       | Project root; =nil= auto-detects via =project-current= |
+| =emacs-mcp-lockfile-directory=         | =~/.emacs-mcp=              | Directory for lockfiles (server discovery)             |
+| =emacs-mcp-extra-lockfile-directories= | =nil=                       | Additional lockfile directories (list of paths)        |
+| =emacs-mcp-session-timeout=            | =1800=                      | Idle session timeout in seconds                        |
+| =emacs-mcp-deferred-timeout=           | =300=                       | Deferred tool result timeout in seconds                |
+| =emacs-mcp-confirm-function=           | =emacs-mcp-default-confirm= | Confirmation function for sensitive tools              |
 
 ** Tool enable/disable
 
@@ -86,18 +86,18 @@ Each built-in tool has a boolean defcustom.  Set any to =nil= before
 starting the server (or call =emacs-mcp-restart= after changing) to
 disable that tool.
 
-| Variable                                    | Default | Tool              |
-|---------------------------------------------+---------+-------------------|
-| =emacs-mcp-enable-tool-project-info=       | =t=     | project-info      |
-| =emacs-mcp-enable-tool-list-buffers=       | =t=     | list-buffers      |
-| =emacs-mcp-enable-tool-open-file=          | =t=     | open-file         |
-| =emacs-mcp-enable-tool-get-buffer-content= | =t=     | get-buffer-content |
-| =emacs-mcp-enable-tool-get-diagnostics=    | =t=     | get-diagnostics   |
-| =emacs-mcp-enable-tool-imenu-symbols=      | =t=     | imenu-symbols     |
-| =emacs-mcp-enable-tool-xref-find-references= | =t=  | xref-find-references |
-| =emacs-mcp-enable-tool-xref-find-apropos=  | =t=     | xref-find-apropos |
-| =emacs-mcp-enable-tool-treesit-info=       | =t=     | treesit-info      |
-| =emacs-mcp-enable-tool-execute-elisp=      | =nil=   | execute-elisp     |
+| Variable                                     | Default | Tool                 |
+|----------------------------------------------+---------+----------------------|
+| =emacs-mcp-enable-tool-project-info=         | =t=     | project-info         |
+| =emacs-mcp-enable-tool-list-buffers=         | =t=     | list-buffers         |
+| =emacs-mcp-enable-tool-open-file=            | =t=     | open-file            |
+| =emacs-mcp-enable-tool-get-buffer-content=   | =t=     | get-buffer-content   |
+| =emacs-mcp-enable-tool-get-diagnostics=      | =t=     | get-diagnostics      |
+| =emacs-mcp-enable-tool-imenu-symbols=        | =t=     | imenu-symbols        |
+| =emacs-mcp-enable-tool-xref-find-references= | =t=     | xref-find-references |
+| =emacs-mcp-enable-tool-xref-find-apropos=    | =t=     | xref-find-apropos    |
+| =emacs-mcp-enable-tool-treesit-info=         | =t=     | treesit-info         |
+| =emacs-mcp-enable-tool-execute-elisp=        | =nil=   | execute-elisp        |
 
 Note: =execute-elisp= is disabled by default for security.  See [[*Security]].
 
@@ -234,18 +234,18 @@ Returns a =CallToolResult= with text content containing project metadata.
 
 * Built-in Tools
 
-| Tool                  | Description                                          | Parameters                                                                                |
-|-----------------------+------------------------------------------------------+-------------------------------------------------------------------------------------------|
-| =project-info=       | Return project metadata (directory, active buffer, file count) | /none/                                                                              |
-| =list-buffers=       | Return open project buffers with path, modified flag, major mode | /none/                                                                            |
-| =open-file=          | Open a file in Emacs, optionally at a line range     | =path= (string, required), =startLine= (integer), =endLine= (integer)                    |
-| =get-buffer-content= | Return buffer text, optionally for a line range      | =file= (string, required), =startLine= (integer), =endLine= (integer)                    |
-| =get-diagnostics=    | Return flymake/flycheck diagnostics                  | =file= (string, optional; omit for all project buffers)                                   |
-| =imenu-symbols=      | List symbols (functions, variables, etc.) from imenu  | =file= (string, required)                                                                |
-| =xref-find-references= | Find references to a symbol                       | =identifier= (string, required), =file= (string, optional)                               |
-| =xref-find-apropos=  | Search symbols matching a regexp pattern             | =pattern= (string, required)                                                              |
-| =treesit-info=       | Return tree-sitter syntax info for a file or position | =file= (string, required), =line= (integer), =column= (integer)                         |
-| =execute-elisp=      | Evaluate an Emacs Lisp expression (requires confirmation) | =expression= (string, required)                                                      |
+| Tool                   | Description                                                      | Parameters                                                            |
+|------------------------+------------------------------------------------------------------+-----------------------------------------------------------------------|
+| =project-info=         | Return project metadata (directory, active buffer, file count)   | /none/                                                                |
+| =list-buffers=         | Return open project buffers with path, modified flag, major mode | /none/                                                                |
+| =open-file=            | Open a file in Emacs, optionally at a line range                 | =path= (string, required), =startLine= (integer), =endLine= (integer) |
+| =get-buffer-content=   | Return buffer text, optionally for a line range                  | =file= (string, required), =startLine= (integer), =endLine= (integer) |
+| =get-diagnostics=      | Return flymake/flycheck diagnostics                              | =file= (string, optional; omit for all project buffers)               |
+| =imenu-symbols=        | List symbols (functions, variables, etc.) from imenu             | =file= (string, required)                                             |
+| =xref-find-references= | Find references to a symbol                                      | =identifier= (string, required), =file= (string, optional)            |
+| =xref-find-apropos=    | Search symbols matching a regexp pattern                         | =pattern= (string, required)                                          |
+| =treesit-info=         | Return tree-sitter syntax info for a file or position            | =file= (string, required), =line= (integer), =column= (integer)       |
+| =execute-elisp=        | Evaluate an Emacs Lisp expression (requires confirmation)        | =expression= (string, required)                                       |
 
 All file-path parameters must be absolute paths within the project
 directory.  Paths outside the project are rejected.
