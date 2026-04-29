@@ -152,5 +152,30 @@ Uses the following fallback chain:
         (project-root proj))
       default-directory))
 
+;;;; Project directory validation
+
+(defun emacs-mcp--validate-project-dir (path)
+  "Validate and canonicalize a client-supplied project directory PATH.
+Returns the canonical path on success.  Signals an error if PATH
+is not a non-empty absolute path to an existing directory, or if
+it falls outside `emacs-mcp-allowed-project-directories'."
+  (unless (and (stringp path) (not (string-empty-p path)))
+    (error "Project directory must be a non-empty string"))
+  (unless (file-name-absolute-p path)
+    (error "Project directory must be an absolute path: %s" path))
+  (let ((canonical (file-truename (expand-file-name path))))
+    (unless (file-directory-p canonical)
+      (error "Project directory does not exist: %s" path))
+    (when emacs-mcp-allowed-project-directories
+      (let ((allowed nil))
+        (dolist (dir emacs-mcp-allowed-project-directories)
+          (when (file-in-directory-p
+                 canonical
+                 (file-truename (expand-file-name dir)))
+            (setq allowed t)))
+        (unless allowed
+          (error "Project directory not in allowed list"))))
+    canonical))
+
 (provide 'emacs-mcp-session)
 ;;; emacs-mcp-session.el ends here

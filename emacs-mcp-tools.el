@@ -15,6 +15,7 @@
 
 (require 'emacs-mcp)
 (require 'emacs-mcp-jsonrpc)
+(require 'emacs-mcp-session)
 (require 'emacs-mcp-confirm)
 
 ;;;; Dynamic variables for deferred context
@@ -24,6 +25,11 @@
 
 (defvar emacs-mcp--current-request-id nil
   "JSON-RPC request ID bound during tool handler execution.")
+
+(defvar emacs-mcp--current-project-dir nil
+  "Project directory bound during tool handler execution.
+Captured at dispatch time so deferred handlers retain the
+project context even if the session's directory changes later.")
 
 ;;;; Global tool registry
 
@@ -230,8 +236,12 @@ signals an error for protocol-level failures."
       (if (not (emacs-mcp--maybe-confirm name args confirm))
           (emacs-mcp--wrap-tool-error "User denied execution.")
         ;; Execute handler with dynamic context
-        (let ((emacs-mcp--current-session-id session-id)
-              (emacs-mcp--current-request-id request-id))
+        (let* ((emacs-mcp--current-session-id session-id)
+               (emacs-mcp--current-request-id request-id)
+               (session (emacs-mcp--session-get session-id))
+               (emacs-mcp--current-project-dir
+                (when session
+                  (emacs-mcp-session-project-dir session))))
           (condition-case err
               (let ((result (funcall handler args)))
                 (emacs-mcp--wrap-tool-result result))

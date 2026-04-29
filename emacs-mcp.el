@@ -39,6 +39,8 @@
 (declare-function emacs-mcp--http-stop "emacs-mcp-http")
 (declare-function emacs-mcp--resolve-project-dir
                   "emacs-mcp-session")
+(declare-function emacs-mcp--validate-project-dir
+                  "emacs-mcp-session")
 (declare-function emacs-mcp--session-cleanup-all
                   "emacs-mcp-session")
 (declare-function emacs-mcp--lockfile-create-all
@@ -115,6 +117,18 @@ is considered failed."
   :safe #'integerp
   :group 'emacs-mcp)
 
+(defcustom emacs-mcp-allowed-project-directories nil
+  "List of directories clients may request as project roots.
+When nil, any existing directory is allowed.  When non-nil, each
+client-requested project directory must be within one of these
+directories.  Paths are canonicalized before comparison."
+  :type '(choice (const :tag "No restriction" nil)
+                 (repeat :tag "Allowed directories" directory))
+  :safe (lambda (v)
+          (or (null v)
+              (and (listp v) (cl-every #'stringp v))))
+  :group 'emacs-mcp)
+
 ;;;; Hook variables
 
 (defvar emacs-mcp-server-started-hook nil
@@ -131,6 +145,12 @@ Functions receive one argument: the session ID string.")
 (defvar emacs-mcp-client-disconnected-hook nil
   "Hook run when an MCP client session is terminated.
 Functions receive one argument: the session ID string.")
+
+(defvar emacs-mcp-project-dir-changed-hook nil
+  "Hook run when a session's project directory changes.
+Functions receive three arguments: the session ID string, the old
+project directory, and the new project directory.  Only fires when
+the canonical directory actually changes, not on no-op calls.")
 
 ;;;; Internal state
 

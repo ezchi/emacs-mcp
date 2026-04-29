@@ -30,7 +30,9 @@
     ("tools/list" . emacs-mcp--handle-tools-list)
     ("tools/call" . emacs-mcp--handle-tools-call)
     ("resources/list" . emacs-mcp--handle-resources-list)
-    ("prompts/list" . emacs-mcp--handle-prompts-list))
+    ("prompts/list" . emacs-mcp--handle-prompts-list)
+    ("emacs-mcp/setProjectDir"
+     . emacs-mcp--handle-set-project-dir))
   "Alist mapping MCP method strings to handler functions.")
 
 ;;;; Protocol dispatch
@@ -71,31 +73,45 @@ are rejected with error -32600."
 
 (defun emacs-mcp--handle-initialize (msg _session-id)
   "Handle MCP `initialize' request MSG.
-Creates a new session and returns InitializeResult."
+Creates a new session and returns InitializeResult.
+When `projectDir' is present in params, validates it and uses it
+as the session's project directory.  On validation failure,
+returns a JSON-RPC error without creating a session."
   (let* ((id (alist-get 'id msg))
          (params (alist-get 'params msg))
          (client-info (alist-get 'clientInfo params))
-         (project-dir (or emacs-mcp--project-dir
-                          (emacs-mcp--resolve-project-dir)))
-         (new-session-id (emacs-mcp--session-create
-                          project-dir client-info)))
-    ;; Run hook
-    (run-hook-with-args 'emacs-mcp-client-connected-hook
-                        new-session-id)
-    ;; Return result with session ID attached as metadata
-    (let ((response (emacs-mcp--jsonrpc-make-response
-                     id
-                     `((protocolVersion . "2025-03-26")
-                       (capabilities
-                        . ((tools . ((listChanged . :false)))
-                           (resources . ,(make-hash-table))
-                           (prompts . ,(make-hash-table))))
-                       (serverInfo
-                        . ((name . "emacs-mcp")
-                           (version . "0.1.0")))))))
-      ;; Attach session ID for transport to extract
-      (push (cons :session-id new-session-id) response)
-      response)))
+         (requested-dir (alist-get 'projectDir params)))
+    (condition-case err
+        (let* ((project-dir
+                (if requested-dir
+                    (emacs-mcp--validate-project-dir requested-dir)
+                  (or emacs-mcp--project-dir
+                      (emacs-mcp--resolve-project-dir))))
+               (new-session-id (emacs-mcp--session-create
+                                project-dir client-info)))
+          ;; Run hook
+          (run-hook-with-args 'emacs-mcp-client-connected-hook
+                              new-session-id)
+          ;; Return result with session ID attached as metadata
+          (let ((response
+                 (emacs-mcp--jsonrpc-make-response
+                  id
+                  `((protocolVersion . "2025-03-26")
+                    (capabilities
+                     . ((tools . ((listChanged . :false)))
+                        (resources . ,(make-hash-table))
+                        (prompts . ,(make-hash-table))))
+                    (serverInfo
+                     . ((name . "emacs-mcp")
+                        (version . "0.1.0")))))))
+            ;; Attach session ID for transport to extract
+            (push (cons :session-id new-session-id) response)
+            response))
+      (error
+       (emacs-mcp--jsonrpc-make-error
+        id
+        emacs-mcp--jsonrpc-invalid-params
+        (error-message-string err))))))
 
 ;;;; Handler: notifications/initialized
 
@@ -183,6 +199,48 @@ Returns all registered tools with inputSchema."
   (let ((id (alist-get 'id msg)))
     (emacs-mcp--jsonrpc-make-response
      id `((prompts . ,(vector))))))
+
+;;;; Handler: emacs-mcp/setProjectDir
+
+(defun emacs-mcp--handle-set-project-dir (msg session-id)
+  "Handle `emacs-mcp/setProjectDir' request MSG in SESSION-ID.
+Changes the session's project directory.  Only operates on
+requests, not notifications."
+  (let ((id (alist-get 'id msg)))
+    ;; Guard: notifications must not mutate state
+    (cond
+     ((not (emacs-mcp--jsonrpc-request-p msg))
+      nil)
+     ((not (eq (emacs-mcp-session-state
+                (emacs-mcp--session-get session-id))
+               'ready))
+      (emacs-mcp--jsonrpc-make-error
+       id
+       emacs-mcp--jsonrpc-invalid-request
+       "Session not ready"))
+     (t
+      (condition-case err
+          (let* ((session (emacs-mcp--session-get session-id))
+                 (params (alist-get 'params msg))
+                 (requested-dir (alist-get 'projectDir params))
+                 (new-dir (emacs-mcp--validate-project-dir
+                           requested-dir))
+                 (old-dir (emacs-mcp-session-project-dir
+                           session)))
+            ;; Update and fire hook only if actually changed
+            (unless (string= new-dir old-dir)
+              (setf (emacs-mcp-session-project-dir session)
+                    new-dir)
+              (run-hook-with-args
+               'emacs-mcp-project-dir-changed-hook
+               session-id old-dir new-dir))
+            (emacs-mcp--jsonrpc-make-response
+             id `((projectDir . ,new-dir))))
+        (error
+         (emacs-mcp--jsonrpc-make-error
+          id
+          emacs-mcp--jsonrpc-invalid-params
+          (error-message-string err))))))))
 
 ;;;; Deferred response completion
 
