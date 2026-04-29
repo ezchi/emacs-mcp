@@ -94,9 +94,10 @@
                     :description "Count" :required nil)))))
     (should (equal (alist-get 'type schema) "object"))
     (let ((props (alist-get 'properties schema)))
-      (should (equal (alist-get 'type (cdr (assoc "name" props)))
+      (should (hash-table-p props))
+      (should (equal (alist-get 'type (gethash "name" props))
                      "string"))
-      (should (equal (alist-get 'type (cdr (assoc "count" props)))
+      (should (equal (alist-get 'type (gethash "count" props))
                      "integer")))
     ;; Required only includes "name"
     (should (equal (alist-get 'required schema)
@@ -110,9 +111,9 @@
     (let ((schema (emacs-mcp--tool-input-schema
                    `((:name "x" :type ,(car pair) :required t)))))
       (should (equal (alist-get 'type
-                                (cdr (assoc "x"
-                                            (alist-get 'properties
-                                                       schema))))
+                                (gethash "x"
+                                         (alist-get 'properties
+                                                    schema)))
                      (cdr pair))))))
 
 (ert-deftest emacs-mcp-test-tools-schema-array-items ()
@@ -121,10 +122,23 @@
                  '((:name "tags" :type array :items string
                     :required t)))))
     (let* ((props (alist-get 'properties schema))
-           (tags (cdr (assoc "tags" props))))
+           (tags (gethash "tags" props)))
       (should (equal (alist-get 'type tags) "array"))
       (should (equal (alist-get 'type (alist-get 'items tags))
                      "string")))))
+
+(ert-deftest emacs-mcp-test-tools-schema-serializable ()
+  "Generated schema serializes with string property names."
+  (let ((schema (emacs-mcp--tool-input-schema
+                 '((:name "file" :type string :required t)
+                   (:name "startLine" :type integer
+                    :required nil)))))
+    (should (string-match-p
+             "\"file\""
+             (emacs-mcp--jsonrpc-serialize
+              `((jsonrpc . "2.0")
+                (id . 1)
+                (result . ((inputSchema . ,schema)))))))))
 
 ;;;; Argument validation tests
 

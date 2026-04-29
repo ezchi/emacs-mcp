@@ -97,7 +97,7 @@ function that receives an alist of arguments.  KEYS may include
 (defun emacs-mcp--tool-input-schema (params)
   "Generate a JSON Schema object from PARAMS (list of param plists).
 Returns an alist suitable for JSON serialization."
-  (let ((properties nil)
+  (let ((properties (make-hash-table :test 'equal))
         (required nil))
     (dolist (p params)
       (let* ((name (plist-get p :name))
@@ -111,11 +111,11 @@ Returns an alist suitable for JSON serialization."
                              `((items . ((type . ,(emacs-mcp--type-to-json-schema items))))))))
         (when desc
           (setq prop (append prop `((description . ,desc)))))
-        (push (cons name prop) properties)
+        (puthash name prop properties)
         (when req
           (push name required))))
     `((type . "object")
-      (properties . ,(nreverse properties))
+      (properties . ,properties)
       (required . ,(vconcat (nreverse required))))))
 
 (defun emacs-mcp--type-to-json-schema (type)

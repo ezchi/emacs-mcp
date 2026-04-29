@@ -122,6 +122,20 @@
         (should (equal (alist-get 'name tool) "test-tool"))
         (should (alist-get 'inputSchema tool))))))
 
+(ert-deftest emacs-mcp-test-protocol-tools-list-serializable ()
+  "Tools/list response serializes with string-named schema properties."
+  (emacs-mcp-test-with-protocol
+    (emacs-mcp-register-tool
+     :name "file-tool"
+     :description "A file tool"
+     :params '((:name "file" :type string :required t))
+     :handler #'ignore)
+    (let* ((msg (emacs-mcp-test--make-request 1 "tools/list"))
+           (resp (emacs-mcp--handle-tools-list msg nil)))
+      (should (string-match-p
+               "\"file\""
+               (emacs-mcp--jsonrpc-serialize resp))))))
+
 ;;;; tools/call
 
 (ert-deftest emacs-mcp-test-protocol-tools-call ()
