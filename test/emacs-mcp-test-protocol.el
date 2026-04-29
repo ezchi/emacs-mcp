@@ -279,5 +279,212 @@
         (let ((resp (plist-get entry :response)))
           (should (equal (alist-get 'id resp) 42)))))))
 
+;;;; Per-session project directory tests
+
+(defun emacs-mcp-test--initialize-with-project-dir (project-dir)
+  "Initialize with a specific PROJECT-DIR.
+Returns (session-id . response)."
+  (let* ((msg (emacs-mcp-test--make-request
+               1 "initialize"
+               `((protocolVersion . "2025-03-26")
+                 (capabilities . ,(make-hash-table))
+                 (clientInfo . ((name . "test") (version . "1.0")))
+                 (projectDir . ,project-dir))))
+         (resp (emacs-mcp--handle-initialize msg nil)))
+    (cons (alist-get :session-id resp) resp)))
+
+(defun emacs-mcp-test--make-session-ready (session-id)
+  "Transition SESSION-ID to ready state."
+  (let ((session (emacs-mcp--session-get session-id)))
+    (when session
+      (setf (emacs-mcp-session-state session) 'ready))))
+
+;; AC-1: Two clients with different projectDir
+(ert-deftest emacs-mcp-test-protocol-init-different-project-dirs ()
+  "Two clients can have different project directories."
+  (emacs-mcp-test-with-protocol
+    (let* ((pair1 (emacs-mcp-test--initialize-with-project-dir
+                   "/tmp"))
+           (pair2 (emacs-mcp-test--initialize-with-project-dir
+                   "/var"))
+           (sid1 (car pair1))
+           (sid2 (car pair2))
+           (s1 (emacs-mcp--session-get sid1))
+           (s2 (emacs-mcp--session-get sid2)))
+      (should (stringp sid1))
+      (should (stringp sid2))
+      (should-not (string= (emacs-mcp-session-project-dir s1)
+                            (emacs-mcp-session-project-dir s2))))))
+
+;; AC-3: Invalid projectDir at initialize
+(ert-deftest emacs-mcp-test-protocol-init-invalid-project-dir ()
+  "Invalid projectDir returns error, no session created."
+  (emacs-mcp-test-with-protocol
+    (let ((count-before (hash-table-count emacs-mcp--sessions)))
+      (let* ((resp (cdr (emacs-mcp-test--initialize-with-project-dir
+                         "/nonexistent-abc123xyz"))))
+        (should (alist-get 'error resp))
+        (should (= (alist-get 'code (alist-get 'error resp))
+                   -32602))
+        (should (= (hash-table-count emacs-mcp--sessions)
+                   count-before))))))
+
+;; AC-5: Missing projectDir uses global fallback
+(ert-deftest emacs-mcp-test-protocol-init-no-project-dir ()
+  "Missing projectDir uses global fallback."
+  (emacs-mcp-test-with-protocol
+    (let* ((pair (emacs-mcp-test--initialize))
+           (sid (car pair))
+           (session (emacs-mcp--session-get sid)))
+      (should (equal (emacs-mcp-session-project-dir session)
+                     "/test/project")))))
+
+;; AC-2: setProjectDir changes project-dir
+(ert-deftest emacs-mcp-test-protocol-set-project-dir ()
+  "setProjectDir changes the session's project directory."
+  (emacs-mcp-test-with-protocol
+    (let* ((pair (emacs-mcp-test--initialize-with-project-dir
+                  "/tmp"))
+           (sid (car pair)))
+      (emacs-mcp-test--make-session-ready sid)
+      (let* ((msg (emacs-mcp-test--make-request
+                   2 "emacs-mcp/setProjectDir"
+                   `((projectDir . "/var"))))
+             (resp (emacs-mcp--handle-set-project-dir msg sid))
+             (result (alist-get 'result resp))
+             (session (emacs-mcp--session-get sid)))
+        (should result)
+        (should (stringp (alist-get 'projectDir result)))
+        (should (string-match-p "/var"
+                 (emacs-mcp-session-project-dir session)))))))
+
+;; AC-2 (path auth): path authorization uses new dir
+(ert-deftest emacs-mcp-test-protocol-set-project-dir-path-auth ()
+  "After setProjectDir, path auth uses the new directory."
+  (emacs-mcp-test-with-protocol
+    (let* ((pair (emacs-mcp-test--initialize-with-project-dir
+                  "/tmp"))
+           (sid (car pair)))
+      (emacs-mcp-test--make-session-ready sid)
+      ;; Change to /var
+      (emacs-mcp--handle-set-project-dir
+       (emacs-mcp-test--make-request
+        2 "emacs-mcp/setProjectDir"
+        `((projectDir . "/var")))
+       sid)
+      ;; Path auth should accept /var/... but reject /tmp/...
+      (let* ((emacs-mcp--current-session-id sid)
+             (session (emacs-mcp--session-get sid))
+             (new-dir (emacs-mcp-session-project-dir session)))
+        ;; /var/log should be accepted (inside new project dir)
+        (should (file-in-directory-p "/var/log" new-dir))
+        ;; /tmp/foo should be outside the new project dir
+        (should-not (file-in-directory-p "/tmp/foo" new-dir))))))
+
+;; AC-6: Hook fires on actual change, not on same-dir
+(ert-deftest emacs-mcp-test-protocol-set-project-dir-hook ()
+  "Hook fires on actual change, not on same directory."
+  (emacs-mcp-test-with-protocol
+    (let* ((pair (emacs-mcp-test--initialize-with-project-dir
+                  "/tmp"))
+           (sid (car pair))
+           (hook-args nil)
+           (emacs-mcp-project-dir-changed-hook nil))
+      (emacs-mcp-test--make-session-ready sid)
+      (add-hook 'emacs-mcp-project-dir-changed-hook
+                (lambda (s old new)
+                  (setq hook-args (list s old new))))
+      ;; Change to /var — hook should fire
+      (emacs-mcp--handle-set-project-dir
+       (emacs-mcp-test--make-request
+        2 "emacs-mcp/setProjectDir"
+        `((projectDir . "/var")))
+       sid)
+      (should hook-args)
+      (should (equal (car hook-args) sid))
+      ;; Reset and try same dir — hook should NOT fire
+      (setq hook-args nil)
+      (emacs-mcp--handle-set-project-dir
+       (emacs-mcp-test--make-request
+        3 "emacs-mcp/setProjectDir"
+        `((projectDir . "/var")))
+       sid)
+      (should-not hook-args))))
+
+;; Session not ready → error -32600
+(ert-deftest emacs-mcp-test-protocol-set-project-dir-not-ready ()
+  "setProjectDir on initializing session returns -32600."
+  (emacs-mcp-test-with-protocol
+    (let* ((pair (emacs-mcp-test--initialize-with-project-dir
+                  "/tmp"))
+           (sid (car pair)))
+      ;; Do NOT make session ready
+      (let* ((msg (emacs-mcp-test--make-request
+                   2 "emacs-mcp/setProjectDir"
+                   `((projectDir . "/var"))))
+             (resp (emacs-mcp--handle-set-project-dir msg sid)))
+        (should (alist-get 'error resp))
+        (should (= (alist-get 'code (alist-get 'error resp))
+                   -32600))))))
+
+;; Invalid path → -32602, project-dir unchanged
+(ert-deftest emacs-mcp-test-protocol-set-project-dir-invalid ()
+  "Invalid path returns -32602, project-dir unchanged."
+  (emacs-mcp-test-with-protocol
+    (let* ((pair (emacs-mcp-test--initialize-with-project-dir
+                  "/tmp"))
+           (sid (car pair))
+           (session (emacs-mcp--session-get sid))
+           (original-dir (emacs-mcp-session-project-dir session)))
+      (emacs-mcp-test--make-session-ready sid)
+      (let* ((msg (emacs-mcp-test--make-request
+                   2 "emacs-mcp/setProjectDir"
+                   `((projectDir . "/nonexistent-abc123xyz"))))
+             (resp (emacs-mcp--handle-set-project-dir msg sid)))
+        (should (alist-get 'error resp))
+        (should (= (alist-get 'code (alist-get 'error resp))
+                   -32602))
+        ;; Project dir should be unchanged
+        (should (equal (emacs-mcp-session-project-dir session)
+                       original-dir))))))
+
+;; Notification guard
+(ert-deftest emacs-mcp-test-protocol-set-project-dir-notification ()
+  "Notification does not mutate session state."
+  (emacs-mcp-test-with-protocol
+    (let* ((pair (emacs-mcp-test--initialize-with-project-dir
+                  "/tmp"))
+           (sid (car pair))
+           (session (emacs-mcp--session-get sid))
+           (original-dir (emacs-mcp-session-project-dir session)))
+      (emacs-mcp-test--make-session-ready sid)
+      ;; Send as notification (no id field)
+      (let* ((msg `((jsonrpc . "2.0")
+                    (method . "emacs-mcp/setProjectDir")
+                    (params . ((projectDir . "/var")))))
+             (resp (emacs-mcp--handle-set-project-dir msg sid)))
+        (should-not resp)
+        (should (equal (emacs-mcp-session-project-dir session)
+                       original-dir))))))
+
+;; Deferred context variable binding
+(ert-deftest emacs-mcp-test-protocol-deferred-project-dir ()
+  "emacs-mcp--current-project-dir is bound during tool dispatch."
+  (emacs-mcp-test-with-protocol
+    (let* ((pair (emacs-mcp-test--initialize-with-project-dir
+                  "/tmp"))
+           (sid (car pair))
+           (captured-dir nil))
+      (emacs-mcp-test--make-session-ready sid)
+      (emacs-mcp-register-tool
+       :name "capture-dir"
+       :handler (lambda (_args)
+                  (setq captured-dir
+                        emacs-mcp--current-project-dir)
+                  "ok"))
+      (emacs-mcp--dispatch-tool "capture-dir" nil sid 99)
+      (should captured-dir)
+      (should (string-match-p "/tmp" captured-dir)))))
+
 (provide 'emacs-mcp-test-protocol)
 ;;; emacs-mcp-test-protocol.el ends here

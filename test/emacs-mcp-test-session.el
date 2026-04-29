@@ -210,5 +210,60 @@
       (should (equal (emacs-mcp--resolve-project-dir)
                      "/project/root/")))))
 
+;;;; Validate project directory tests
+
+(ert-deftest emacs-mcp-test-validate-project-dir-valid ()
+  "Valid absolute directory returns canonical path."
+  (let ((emacs-mcp-allowed-project-directories nil)
+        (result (emacs-mcp--validate-project-dir "/tmp")))
+    (should (stringp result))
+    (should (file-name-absolute-p result))))
+
+(ert-deftest emacs-mcp-test-validate-project-dir-empty-string ()
+  "Empty string signals an error."
+  (should-error (emacs-mcp--validate-project-dir "")))
+
+(ert-deftest emacs-mcp-test-validate-project-dir-nil ()
+  "Nil signals an error."
+  (should-error (emacs-mcp--validate-project-dir nil)))
+
+(ert-deftest emacs-mcp-test-validate-project-dir-relative ()
+  "Relative path signals an error."
+  (should-error (emacs-mcp--validate-project-dir "relative/path")))
+
+(ert-deftest emacs-mcp-test-validate-project-dir-nonexistent ()
+  "Non-existent directory signals an error."
+  (should-error
+   (emacs-mcp--validate-project-dir
+    "/nonexistent-dir-abc123xyz")))
+
+(ert-deftest emacs-mcp-test-validate-project-dir-allowlist-pass ()
+  "Path inside allowlist is accepted."
+  (let ((emacs-mcp-allowed-project-directories '("/tmp")))
+    (should (stringp
+             (emacs-mcp--validate-project-dir "/tmp")))))
+
+(ert-deftest emacs-mcp-test-validate-project-dir-allowlist-reject ()
+  "Path outside allowlist is rejected with generic message."
+  (let ((emacs-mcp-allowed-project-directories '("/nonexistent")))
+    (condition-case err
+        (progn
+          (emacs-mcp--validate-project-dir "/tmp")
+          (ert-fail "Expected error"))
+      (error
+       (should (string-match-p "not in allowed list"
+                               (error-message-string err)))
+       ;; Must NOT contain the allowlist paths
+       (should-not (string-match-p "/nonexistent"
+                                   (error-message-string err)))))))
+
+(ert-deftest emacs-mcp-test-validate-project-dir-canonicalizes ()
+  "Returns canonical path (trailing slash, symlink resolution)."
+  (let* ((emacs-mcp-allowed-project-directories nil)
+         (result (emacs-mcp--validate-project-dir "/tmp")))
+    ;; file-truename resolves symlinks, should be absolute
+    (should (file-name-absolute-p result))
+    (should (file-directory-p result))))
+
 (provide 'emacs-mcp-test-session)
 ;;; emacs-mcp-test-session.el ends here
