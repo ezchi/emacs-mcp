@@ -1,5 +1,5 @@
 {
-  "currentStage": "planning",
+  "currentStage": "task_breakdown",
   "iteration": 1,
   "specId": "002-per-session-project-directory",
   "branch": "feature/002-per-session-project-directory",
@@ -12,7 +12,7 @@
       "status": "complete"
     },
     "planning": {
-      "status": "pending"
+      "status": "complete"
     },
     "task_breakdown": {
       "status": "pending"
