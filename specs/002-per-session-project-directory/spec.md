@@ -71,7 +71,9 @@ requiring a valid session.
   directory path.
 - The server MUST validate the path (see FR-3).
 - On success, updates the session's `project-dir` slot and returns the
-  new project directory.
+  new project directory. Already-dispatched deferred tool operations
+  retain the project context captured at dispatch time; only tool calls
+  dispatched after the change use the new project directory.
 - On failure, returns a JSON-RPC error (error code -32602, invalid
   params). The session's project directory is unchanged.
 
@@ -85,20 +87,25 @@ requiring a valid session.
 ### FR-3: Project Directory Validation
 
 A new function `emacs-mcp--validate-project-dir` SHALL validate
-client-supplied project directory paths. Validation rules:
+client-supplied project directory paths. Validation rules, applied in
+this order:
 
 1. The value MUST be a non-empty string.
-2. The path MUST be absolute (starts with `/` on Unix, drive letter on
-   Windows — use `file-name-absolute-p`).
-3. The expanded path (`expand-file-name`) MUST refer to an existing
-   directory (`file-directory-p`).
-4. If `emacs-mcp-allowed-project-directories` is non-nil (see FR-4),
-   the path MUST be within one of the allowed directories
-   (`file-in-directory-p`). The allowlist entries MUST also be
-   canonicalized (`expand-file-name` + `file-truename`) before
-   comparison.
+2. The path MUST be absolute (`file-name-absolute-p`).
+3. Canonicalize the client path: `expand-file-name` then `file-truename`.
+4. The canonical path MUST refer to an existing directory
+   (`file-directory-p`).
+5. If `emacs-mcp-allowed-project-directories` is non-nil (see FR-4),
+   canonicalize each allowlist entry the same way (`expand-file-name` +
+   `file-truename`), then check the canonical client path is within one
+   of them (`file-in-directory-p`). Both sides MUST be in canonical form
+   before comparison.
 
-On validation failure, signal an error with a descriptive message.
+On validation failure, signal an error with a descriptive message. When
+rejecting a path because it is outside the allowlist, the error message
+MUST NOT enumerate the allowed directories (to prevent information
+leakage about the server's filesystem layout). Use a generic message
+such as "Project directory not in allowed list".
 On success, return the expanded, canonical path
 (`expand-file-name` + `file-truename` to resolve symlinks).
 
@@ -118,7 +125,10 @@ added:
 
 The existing `emacs-mcp-client-connected-hook` already fires on session
 creation. A new hook `emacs-mcp-project-dir-changed-hook` SHALL fire
-when a session's project directory changes via `emacs-mcp/setProjectDir`.
+when a session's project directory changes via `emacs-mcp/setProjectDir`
+and the new canonical directory differs from the current one. The hook
+SHALL NOT fire when the resolved directory equals the session's existing
+`project-dir`.
 
 **Arguments:** session-id, old-project-dir, new-project-dir.
 
@@ -171,7 +181,9 @@ rejected with a clear error message.
 the same behavior as before this change (global fallback).
 
 **AC-6:** `emacs-mcp-project-dir-changed-hook` fires with correct
-arguments when `emacs-mcp/setProjectDir` succeeds.
+arguments when `emacs-mcp/setProjectDir` succeeds and the canonical
+project directory actually changes. The hook does NOT fire when the
+resolved directory equals the current one.
 
 **AC-7:** All new code byte-compiles without warnings and passes
 `checkdoc`.
@@ -204,3 +216,7 @@ None — all design decisions are resolved in this spec.
 
 - [Clarification iter1] FR-2: Added session state requirement — `setProjectDir` requires `ready` state, returns -32600 if still `initializing`.
 - [Clarification iter1] FR-3: Allowlist entries are also canonicalized before comparison to prevent tilde/symlink mismatches.
+- [Clarification iter2] FR-5/AC-6: Hook fires only when canonical directory actually changes; no-op when same directory is set.
+- [Clarification iter2] FR-3: Allowlist rejection error messages must not enumerate allowed directories (security).
+- [Clarification iter2] FR-2: Deferred operations retain project context from dispatch time; new dir applies only to later calls.
+- [Clarification iter2] FR-3: Explicit validation order — canonicalize client path first, then canonicalize allowlist entries, then compare.
