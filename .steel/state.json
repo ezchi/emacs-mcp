@@ -1,5 +1,5 @@
 {
-  "currentStage": "validation",
+  "currentStage": "retrospect",
   "iteration": 1,
   "specId": "002-per-session-project-directory",
   "branch": "feature/002-per-session-project-directory",
@@ -21,7 +21,7 @@
       "status": "complete"
     },
     "validation": {
-      "status": "pending"
+      "status": "complete"
     },
     "retrospect": {
       "status": "pending"
