@@ -1,5 +1,5 @@
 {
-  "currentStage": "clarification",
+  "currentStage": "planning",
   "iteration": 1,
   "specId": "002-per-session-project-directory",
   "branch": "feature/002-per-session-project-directory",
@@ -9,7 +9,7 @@
       "status": "complete"
     },
     "clarification": {
-      "status": "pending"
+      "status": "complete"
     },
     "planning": {
       "status": "pending"
