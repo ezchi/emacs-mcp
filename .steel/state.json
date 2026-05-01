@@ -1,0 +1,39 @@
+{
+  "currentStage": "complete",
+  "iteration": 1,
+  "specId": "002-per-session-project-directory",
+  "branch": "feature/002-per-session-project-directory",
+  "description": "Allow MCP clients to specify and change the project directory per-session, stored in the session struct",
+  "stages": {
+    "specification": {
+      "status": "complete"
+    },
+    "clarification": {
+      "status": "complete"
+    },
+    "planning": {
+      "status": "complete"
+    },
+    "task_breakdown": {
+      "status": "complete"
+    },
+    "implementation": {
+      "status": "complete"
+    },
+    "validation": {
+      "status": "complete"
+    },
+    "retrospect": {
+      "status": "complete"
+    }
+  },
+  "skillsUsed": {
+    "specification": [],
+    "clarification": [],
+    "planning": [],
+    "task_breakdown": [],
+    "implementation": [],
+    "validation": [],
+    "retrospect": []
+  }
+}

@@ -1,0 +1,42 @@
+[
+  {
+    "id": 1,
+    "title": "Add defcustom and hook variable",
+    "description": "Add emacs-mcp-allowed-project-directories defcustom and emacs-mcp-project-dir-changed-hook to emacs-mcp.el"
+  },
+  {
+    "id": 2,
+    "title": "Implement project directory validation",
+    "description": "Add emacs-mcp--validate-project-dir to emacs-mcp-session.el implementing FR-3 validation rules"
+  },
+  {
+    "id": 3,
+    "title": "Modify initialize handler for per-session projectDir",
+    "description": "Modify emacs-mcp--handle-initialize to accept optional projectDir in params (FR-1)"
+  },
+  {
+    "id": 4,
+    "title": "Add setProjectDir handler",
+    "description": "Add emacs-mcp--handle-set-project-dir and register emacs-mcp/setProjectDir method (FR-2)"
+  },
+  {
+    "id": 5,
+    "title": "Add deferred context variable",
+    "description": "Add emacs-mcp--current-project-dir dynamic variable and bind in dispatch-tool"
+  },
+  {
+    "id": 6,
+    "title": "Write validation tests",
+    "description": "Add ERT tests for emacs-mcp--validate-project-dir to test-session.el"
+  },
+  {
+    "id": 7,
+    "title": "Write protocol tests",
+    "description": "Add ERT tests for initialize-with-projectDir and setProjectDir to test-protocol.el"
+  },
+  {
+    "id": 8,
+    "title": "Byte-compile and checkdoc verification",
+    "description": "Verify all modified files byte-compile cleanly and pass checkdoc (AC-7)"
+  }
+]
